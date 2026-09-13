@@ -1,0 +1,30 @@
+# 运行时生成
+data/BrowserProfile/
+data/Icons/
+data/csd.cache
+data/host.log
+data/*.log
+
+# 临时/状态文件
+data/check.txt
+data/status.txt
+data/rt_*.txt
+data/rt_*.json
+data/syntax.txt
+data/wrapper_err.txt
+data/test_wrapper.ps1
+data/runtime.json
+
+# 系统/快捷方式
+*.lnk
+*.tmp
+*.bak
+Thumbs.db
+Desktop.ini
+
+# 问题截图
+issue_screenshot.png
+
+# 临时实验目录
+data/ChatGPT/
+data/*.ps1.bak

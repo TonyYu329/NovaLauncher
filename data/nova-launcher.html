@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark" data-page-node-id="P5D2iMQBwubHX6YIHBZpaL">
+<head data-page-node-id="PwnnOBj1G2HBk7kYOIrqnJ">
+<meta charset="UTF-8" data-page-node-id="A6EzTGUy6Nop7GTaryyWoD">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="IcM0dVYIjfEAfsNdw3sttc">
+<title>Nova Launcher</title>
+<!-- 应用图标：与顶栏 .brand .mark 同款（135deg #6d8bff→#9b7cff 渐变圆角方块 + 白色四角星）。
+     --app 模式下窗口/任务栏图标取自这里；?v=2：M26 重制图标后破 BrowserProfile 的 favicon 缓存 -->
+<link rel="icon" href="nova-logo.ico?v=3" data-page-node-id="9sNFVA5HwLUOTcZLrWyEyB">
+<!--
+  ============================================================================
+  Nova Launcher · 前端界面
+  ① 首次创建人   ：Tony
+  ② 首次创建时间 ：2026-09-11 16:03:30
+  ③ 功能简介     ：Nova Launcher 界面层。由 NovaLauncher.ps1 宿主以本地 HTTP 服务
+                   托管，通过同源 /api/* 与宿主通信：读取 apps.json / settings.json、
+                   显示 Windows Shell 提取的真实图标、点击启动真实程序、拖拽排序、
+                   调整图标大小与列数、切换深浅主题。
+                   独立双击打开（file://）时自动进入「演示模式」，用内置示例数据
+                   预览界面与交互，不会执行任何启动动作。
+  ④ 最后修改人   ：Tony
+  ⑤ 最后修改时间 ：2026-09-13 13:28:18
+  ============================================================================
+  修改摘要：
+  - 2026-09-12 M21 图标右键菜单新增「重命名」：菜单原地变身成「输入框+确定/取消」，
+    回车确定、Esc 取消；只改显示名不动磁盘文件；新增 API.rename → /api/rename。
+  - 2026-09-12 M22 新增 <link rel="icon"> 指向 nova-logo.ico：--app 模式下
+    窗口/任务栏/Alt-Tab 图标与顶栏 Logo 同款，不再显示浏览器默认图标。
+  - 2026-09-12 M24 设置抽屉新增「🩺 检查应用有效性」：一键调 /api/checkapps 逐项
+    验证（文件存在性 + .lnk 深挖目标）；失效项集中在面板中可单独/一键移除，
+    结果回写 exists 让网格与列表即时标红。
+  - 2026-09-12 M25 设置抽屉区块重排：外观（图标大小/每行图标数/主题）移到最上方，
+    依次为 外观 → 我的应用 → 数据。
+  - 2026-09-12 M26 重制应用图标：无头 Edge 渲染的源图下半大面积透明（视口/DPI 陷阱），
+    改为 node 逐像素光栅化（几何合成 + 2x2 超采样），上下透明完全对称（0.0%）；
+    favicon 版本 ?v=1→?v=2 破缓存。
+  - 2026-09-12 M27 窗口三键不依赖宿主：关闭键在 API 失败时立即降级为浏览器原生
+    window.close()（--app 窗口可关）；心跳/操作确认宿主退出后进入 host-dead 降级态，
+    最小化/最大化置灰（Web 平台无原生窗口 API）并给出明确提示，不再弹「窗口操作失败」。
+  - 2026-09-13 M37 窗口化顶部黑边修复：CSD 闸门从 [16,48] 收紧到 [20,40]，拒绝 42 这类
+    DPI 切换 artifacts；启动时自动检测并清除超出闸门的 csd.cache，防止错误值持久化。
+-->
+<style>
+  :root{
+    --anim-fast: 120ms;
+    --anim-normal: 180ms;
+    --anim-medium: 240ms;
+    --ease: cubic-bezier(.22,.61,.36,1);
+    --radius-card: 12px;
+    --radius-panel: 16px;
+    --icon-size: 64px;
+    --cols: 6;
+  }
+
+  /* ---------- 深色主题（默认）---------- */
+  html[data-theme="dark"]{
+    --bg-base: #101014;
+    --bg-glow-1: #4c6fff;
+    --bg-glow-2: #8b5cf6;
+    --bg-glow-3: #22d3ee;
+    --text-1: #ececf1;
+    --text-2: #a2a2b0;
+    --text-3: #6f6f7e;
+    --glass: rgba(255,255,255,.055);
+    --glass-hover: rgba(255,255,255,.10);
+    --stroke: rgba(255,255,255,.09);
+    --stroke-strong: rgba(255,255,255,.16);
+    --shadow: 0 18px 50px rgba(0,0,0,.55);
+    --accent: #6d8bff;
+    --accent-2: #9b7cff;
+    --panel: rgba(26,26,32,.72);
+    --danger: #ff8a8a;
+    --danger-glow: rgba(255,138,138,.23);
+    --warn: #ffc46b;
+    --ok: #57d98a;
+    --ok-glow: rgba(87,217,138,.22);
+  }
+  /* ---------- 浅色主题 ---------- */
+  html[data-theme="light"]{
+    --bg-base: #eef0f5;
+    --bg-glow-1: #9db4ff;
+    --bg-glow-2: #c3b0ff;
+    --bg-glow-3: #9fe8f5;
+    --text-1: #17171c;
+    --text-2: #4c4c57;
+    --text-3: #8a8a95;
+    --glass: rgba(255,255,255,.66);
+    --glass-hover: rgba(255,255,255,.92);
+    --stroke: rgba(0,0,0,.07);
+    --stroke-strong: rgba(0,0,0,.14);
+    --shadow: 0 18px 50px rgba(40,50,90,.18);
+    --accent: #4c6fff;
+    --accent-2: #7c5cff;
+    --panel: rgba(255,255,255,.80);
+    --danger: #d33b3b;
+    --danger-glow: rgba(211,59,59,.18);
+    --warn: #b5730a;
+    --ok: #1aa35a;
+    --ok-glow: rgba(26,163,90,.18);
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ height:100%; }
+  body{
+    font-family:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,"Microsoft YaHei UI","PingFang SC",sans-serif;
+    color:var(--text-1);
+    background:var(--bg-base);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---------- Mica 背景：多层渐变 + 光晕 ---------- */
+  .backdrop{ position:fixed; inset:0; z-index:0; overflow:hidden; }
+  .backdrop::before,.backdrop::after,.backdrop .g3{
+    content:""; position:absolute; border-radius:50%; filter:blur(90px); opacity:.55;
+  }
+  .backdrop::before{ width:60vw; height:60vw; left:-14vw; top:-22vw;
+    background:radial-gradient(circle,var(--bg-glow-1),transparent 62%); }
+  .backdrop::after{ width:55vw; height:55vw; right:-16vw; top:-10vw;
+    background:radial-gradient(circle,var(--bg-glow-2),transparent 62%); }
+  .backdrop .g3{ width:48vw; height:48vw; left:24vw; bottom:-26vw; opacity:.4;
+    background:radial-gradient(circle,var(--bg-glow-3),transparent 62%); }
+  .backdrop .noise{ position:absolute; inset:0; opacity:.5;
+    background-image:radial-gradient(rgba(255,255,255,.035) 1px,transparent 1px);
+    background-size:3px 3px; }
+
+  /* ---------- 窗口 ---------- */
+  .window{ position:relative; z-index:1; height:100%; display:flex; flex-direction:column; padding:0 28px 28px; }
+
+  /* ---------- 顶栏 ---------- */
+  .titlebar{ height:66px; display:flex; align-items:center; gap:14px; flex:0 0 auto; }
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .brand .mark{
+    width:30px; height:30px; border-radius:9px; display:grid; place-items:center;
+    font-size:15px; color:#fff;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    box-shadow:0 6px 18px rgba(109,139,255,.45);
+  }
+  .brand .name{
+    font-size:17px; font-weight:650; letter-spacing:.14em;
+    background:linear-gradient(90deg,var(--text-1),var(--text-2));
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+  }
+  /* ---------- 连接状态指示（只有一个小圆点，不占文字位置） ----------
+     online  = 已连接宿主 → 绿点，**不显示文字**
+     offline = 未连接宿主 → 红点 + 文字提示（只有异常态才出文字）
+     pending = 正在连接   → 灰点，不显示文字（转瞬即逝的中间态）
+     用 data-state 驱动，状态与样式一一对应，避免文字/颜色各改一处走岔 */
+  .badge{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:11px; padding:3px 9px; border-radius:999px; letter-spacing:.04em;
+    border:1px solid transparent; background:transparent; color:var(--text-3);
+    transition:background var(--anim-fast) var(--ease), border-color var(--anim-fast) var(--ease),
+               color var(--anim-fast) var(--ease);
+  }
+  .badge .dot{
+    width:11px; height:11px; border-radius:50%; flex:0 0 auto; background:var(--text-3);
+    transition:background var(--anim-fast) var(--ease), box-shadow var(--anim-fast) var(--ease);
+  }
+  .badge .badge-txt{ display:none; }                     /* 默认不出文字：正常时界面保持干净 */
+  .badge[data-state="online"] .dot{ background:var(--ok); box-shadow:0 0 0 4px var(--ok-glow); }
+  .badge[data-state="offline"]{
+    border-color:var(--stroke-strong); background:var(--glass); color:var(--danger);
+  }
+  .badge[data-state="offline"] .dot{
+    background:var(--danger); box-shadow:0 0 0 4px var(--danger-glow);
+    animation:conn-pulse 1.8s ease-in-out infinite;        /* 断连要能被一眼注意到 */
+  }
+  .badge[data-state="offline"] .badge-txt{ display:inline; }
+  @keyframes conn-pulse{ 0%,100%{ opacity:1 } 50%{ opacity:.35 } }
+  .titlebar .spacer{ flex:1; }
+  .icon-btn{
+    width:40px; height:40px; border-radius:11px; border:1px solid transparent;
+    background:var(--glass); color:var(--text-1); cursor:pointer;
+    display:grid; place-items:center; font-size:17px;
+    transition:background var(--anim-fast) var(--ease), transform var(--anim-fast) var(--ease), border-color var(--anim-fast) var(--ease);
+  }
+  .icon-btn:hover{ background:var(--glass-hover); border-color:var(--stroke); transform:translateY(-1px); }
+  .icon-btn:active{ transform:scale(.94); }
+
+  /* ---------- 窗口控制（最小化 / 最大化还原 / 关闭） ---------- */
+  /* 宿主打开窗口时已去掉系统标题栏并铺满屏幕，所以这三个按钮就是唯一的窗口操作入口 */
+  .wctrl{ display:flex; align-items:center; gap:2px; margin-left:8px; }
+  .wbtn{
+    width:38px; height:38px; border-radius:10px; border:1px solid transparent; padding:0;
+    background:transparent; color:var(--text-2); cursor:pointer; display:grid; place-items:center;
+    transition:background var(--anim-fast) var(--ease), color var(--anim-fast) var(--ease), transform var(--anim-fast) var(--ease);
+  }
+  .wbtn svg{ width:12px; height:12px; fill:none; stroke:currentColor; stroke-width:1.3; stroke-linecap:round; }
+  .wbtn:hover{ background:var(--glass-hover); color:var(--text-1); }
+  .wbtn:active{ transform:scale(.92); }
+  .wbtn-close:hover{ background:#e5484d; color:#fff; }
+  .wbtn .ic-restore{ display:none; }
+  .wbtn.is-full .ic-max{ display:none; }
+  .wbtn.is-full .ic-restore{ display:block; }
+  /* 演示模式（直接双击 HTML）没有可控制的窗口，整组按钮隐藏 */
+  body:not(.hosted) .wctrl{ display:none; }
+
+  /* ---------- 窗口化拖拽移动（M36） ----------
+     窗口化时整条自绘标题栏可按住拖动、移动整窗并跟随鼠标（实现见 JS setupTitlebarDrag：
+     pointerdown 记基准 → pointermove 把「窗口新左上角(物理px)」发宿主 op=move → SetWindowPos）。
+     · 不用 CSS -webkit-app-region:drag：本项目 --app 窗被宿主从外部剥了 WS_CAPTION 又
+       SetWindowRgn 裁过顶栏，实测该属性既不触发系统拖动、又会把标题栏变成「非客户区」吞掉
+       DOM 鼠标事件，反令 JS 拖动失效——故弃用，改走显式 SetWindowPos。
+     · 仅窗口化(body.is-windowed，由 applyWinChrome 按形态增删)启用：最大化时铺满工作区无处可移。
+     · move 光标作可拖动提示；区内按钮已各自声明 cursor:pointer，覆盖这里继承来的 move。 */
+  body.is-windowed .titlebar{ cursor:move; }
+  /* 宿主退出后的降级态：最小化/最大化点不动（Web 无原生窗口 API），关闭键改走浏览器关窗 */
+  body.host-dead .wbtn:not(.wbtn-close){ opacity:.35; cursor:not-allowed; }
+
+  /* ---------- 主区 ---------- */
+  /* 主区不再有标题/说明文字，网格直接铺满；上留一点呼吸位 */
+  .main{ flex:1; min-height:0; overflow-y:auto; padding-top:18px; }
+  .main::-webkit-scrollbar{ width:10px; }
+  .main::-webkit-scrollbar-thumb{ background:var(--stroke-strong); border-radius:8px; border:3px solid transparent; background-clip:content-box; }
+
+  .grid{
+    display:grid; justify-content:center; align-content:start;
+    /* minmax(0,…) —— 列宽在窗口宽度不够时自动等比收缩：
+       4~8 列维持原尺寸；9~12 列按可用宽度压缩，避免横向溢出 */
+    grid-template-columns:repeat(var(--cols), minmax(0, calc(var(--icon-size) + 40px)));
+    gap:20px 8px;
+    padding:4px 0 40px;
+  }
+
+  /* ---------- 应用卡片 ---------- */
+  .tile{
+    position:relative; display:flex; flex-direction:column; align-items:center; gap:10px;
+    padding:14px 6px 12px; border-radius:var(--radius-card);
+    border:1px solid transparent; background:transparent; cursor:pointer;
+    transition:transform var(--anim-fast) var(--ease), background var(--anim-fast) var(--ease),
+               box-shadow var(--anim-fast) var(--ease), border-color var(--anim-fast) var(--ease);
+    user-select:none;
+  }
+  .tile .ico{
+    position:relative; width:min(100%, var(--icon-size)); aspect-ratio:1 / 1; height:auto;
+    display:grid; place-items:center; container-type:inline-size;
+    transition:filter var(--anim-fast) var(--ease), transform var(--anim-fast) var(--ease);
+  }
+  .tile .ico img{
+    width:100%; height:100%; object-fit:contain;
+    filter:drop-shadow(0 8px 20px rgba(0,0,0,.42));
+  }
+  .tile .ico .glyph{
+    display:none; width:100%; height:100%; place-items:center;
+    border-radius:calc(var(--icon-size) * .24);
+    font-size:calc(var(--icon-size) * .42); font-size:42cqw; font-weight:600; color:#fff; line-height:1;
+    box-shadow:0 8px 22px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.22);
+  }
+  .tile .ico.fallback img{ display:none; }
+  .tile .ico.fallback .glyph{ display:grid; }
+  /* 路径失效标记 */
+  .tile.missing .ico::after{
+    content:"!"; position:absolute; right:-2px; top:-2px; width:20px; height:20px;
+    border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:700;
+    background:var(--danger); color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.4);
+  }
+  .tile .label{
+    font-size:12.5px; color:var(--text-2); max-width:100%;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    transition:color var(--anim-fast) var(--ease);
+  }
+  .tile.missing .label{ color:var(--danger); }
+  /* Hover：放大 + 光晕 + 玻璃底 + 上移 */
+  .tile:hover{ transform:translateY(-3px) scale(1.055); background:var(--glass); border-color:var(--stroke);
+    box-shadow:var(--shadow); }
+  .tile:hover .ico{ filter:brightness(1.08) saturate(1.05); }
+  .tile:hover .label{ color:var(--text-1); }
+  .tile:active{ transform:translateY(0) scale(.975); }
+  .tile.dragging{ opacity:.35; }
+  .tile.drop-target{ border-color:var(--stroke-strong); background:var(--glass);
+    box-shadow:0 0 0 2px var(--accent) inset; }
+
+  /* ---------- 空状态 ---------- */
+  .empty{
+    grid-column:1 / -1; display:flex; flex-direction:column; align-items:center; gap:14px;
+    padding:54px 20px; border:1.5px dashed var(--stroke-strong); border-radius:var(--radius-panel);
+    background:var(--glass); max-width:520px; margin:0 auto;
+  }
+  .empty .big{ font-size:38px; opacity:.5; }
+  .empty h2{ font-size:16px; font-weight:600; }
+  .empty p{ font-size:12.5px; color:var(--text-3); text-align:center; line-height:1.7; }
+
+  /* ---------- 设置抽屉 ---------- */
+  .scrim{ position:fixed; inset:0; z-index:5; background:rgba(0,0,0,.44); backdrop-filter:blur(2px);
+    opacity:0; pointer-events:none; transition:opacity var(--anim-medium) var(--ease); }
+  .scrim.open{ opacity:1; pointer-events:auto; }
+
+  .drawer{
+    position:fixed; top:0; right:0; z-index:6; height:100%; width:392px; max-width:92vw;
+    padding:22px 22px 26px; overflow-y:auto;
+    background:var(--panel); backdrop-filter:blur(34px) saturate(1.4);
+    border-left:1px solid var(--stroke);
+    transform:translateX(102%); box-shadow:-24px 0 60px rgba(0,0,0,.45);
+    transition:transform var(--anim-medium) var(--ease);
+  }
+  .drawer.open{ transform:translateX(0); }
+  .drawer h2{ font-size:16px; font-weight:640; margin-bottom:4px; }
+  .drawer .sub{ font-size:12px; color:var(--text-3); margin-bottom:20px; }
+  .sec{ margin-bottom:24px; }
+  .sec > h3{ font-size:12px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--text-3); margin-bottom:12px; }
+
+  .btn-primary{
+    width:100%; padding:11px 14px; border-radius:11px; border:1px solid var(--stroke);
+    background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#fff;
+    font-size:13.5px; font-weight:600; cursor:pointer; font-family:inherit;
+    transition:filter var(--anim-fast) var(--ease), transform var(--anim-fast) var(--ease);
+  }
+  .btn-primary:hover{ filter:brightness(1.08); transform:translateY(-1px); }
+  .btn-primary:active{ transform:scale(.98); }
+  .btn-ghost{
+    width:100%; padding:9px 14px; border-radius:10px; border:1px solid var(--stroke);
+    background:var(--glass); color:var(--text-2); font-size:12.5px; cursor:pointer; font-family:inherit;
+    transition:background var(--anim-fast) var(--ease), color var(--anim-fast) var(--ease);
+  }
+  .btn-ghost:hover{ background:var(--glass-hover); color:var(--text-1); }
+
+  .app-list{ margin-top:14px; display:flex; flex-direction:column; gap:6px; }
+  .row{ display:flex; align-items:center; gap:11px; padding:8px 10px; border-radius:10px;
+    border:1px solid transparent; transition:background var(--anim-fast) var(--ease), border-color var(--anim-fast) var(--ease); }
+  .row:hover{ background:var(--glass); border-color:var(--stroke); }
+  .row .mini{ width:30px; height:30px; border-radius:8px; display:grid; place-items:center; flex:0 0 auto;
+    overflow:hidden; }
+  .row .mini img{ width:100%; height:100%; object-fit:contain; }
+  .row .mini .glyph{ width:100%; height:100%; display:grid; place-items:center; font-size:15px;
+    color:#fff; font-weight:600; box-shadow:inset 0 1px 0 rgba(255,255,255,.2); }
+  .row .rname{ flex:1; font-size:13px; min-width:0; }
+  .row .rpath{ font-size:10.5px; color:var(--text-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .rm{ font-size:12px; color:var(--text-3); background:none; border:none; cursor:pointer;
+    padding:4px 8px; border-radius:7px; font-family:inherit; flex:0 0 auto;
+    transition:background var(--anim-fast) var(--ease), color var(--anim-fast) var(--ease); }
+  .row .rm:hover{ background:rgba(255,90,90,.16); color:var(--danger); }
+
+  /* 一键检查结果面板：只列失效项，正常项不打扰 */
+  .chk-result{ margin-top:12px; border:1px solid rgba(255,90,90,.35); border-radius:12px;
+    background:rgba(255,90,90,.07); padding:10px 12px; }
+  .chk-result .chk-hd{ font-size:12.5px; font-weight:600; color:var(--danger); margin-bottom:8px; }
+  .chk-result .chk-hd b{ color:var(--text-1); }
+  .chk-result .chk-item{ display:flex; align-items:center; gap:8px; padding:6px 2px;
+    border-top:1px solid var(--stroke); }
+  .chk-result .chk-item:first-of-type{ border-top:none; }
+  .chk-result .chk-info{ flex:1; min-width:0; }
+  .chk-result .chk-name{ font-size:12.5px; color:var(--text-1); }
+  .chk-result .chk-why{ font-size:10.5px; color:var(--danger); }
+  .chk-result .rm{ font-size:12px; color:var(--text-3); background:none; border:none; cursor:pointer;
+    padding:4px 8px; border-radius:7px; font-family:inherit; flex:0 0 auto;
+    transition:background var(--anim-fast) var(--ease), color var(--anim-fast) var(--ease); }
+  .chk-result .rm:hover{ background:rgba(255,90,90,.16); color:var(--danger); }
+  .chk-result .rm-all{ margin-top:6px; width:100%; font-size:12px; font-family:inherit; cursor:pointer;
+    color:var(--danger); background:rgba(255,90,90,.14); border:1px solid rgba(255,90,90,.35);
+    padding:6px 0; border-radius:8px;
+    transition:background var(--anim-fast) var(--ease); }
+  .chk-result .rm-all:hover{ background:rgba(255,90,90,.26); }
+  #checkApps:disabled{ opacity:.55; cursor:default; }
+
+  .field{ margin-bottom:16px; }
+  .field label{ display:flex; justify-content:space-between; font-size:12.5px; color:var(--text-2); margin-bottom:9px; }
+  .field label b{ color:var(--text-1); font-weight:600; }
+  input[type=range]{ width:100%; -webkit-appearance:none; appearance:none; height:5px; border-radius:4px;
+    background:var(--stroke-strong); outline:none; }
+  input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; width:17px; height:17px; border-radius:50%;
+    background:#fff; border:3px solid var(--accent); cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.4); }
+  select{
+    width:100%; padding:9px 11px; border-radius:10px; border:1px solid var(--stroke);
+    background:var(--glass); color:var(--text-1); font-size:13px; font-family:inherit; cursor:pointer; outline:none;
+  }
+  select option{ background:#1b1b21; color:#ececf1; }
+  html[data-theme="light"] select option{ background:#fff; color:#17171c; }
+  .seg{ display:flex; gap:6px; background:var(--glass); border:1px solid var(--stroke); border-radius:11px; padding:4px; }
+  .seg button{ flex:1; padding:8px; border-radius:8px; border:none; background:transparent; color:var(--text-2);
+    font-size:12.5px; cursor:pointer; font-family:inherit;
+    transition:background var(--anim-fast) var(--ease), color var(--anim-fast) var(--ease); }
+  .seg button.on{ background:linear-gradient(135deg,var(--accent),var(--accent-2)); color:#fff; font-weight:600; }
+
+  /* ---------- 提示 ---------- */
+  .toast{
+    position:fixed; left:50%; bottom:40px; z-index:9; transform:translate(-50%,26px);
+    padding:11px 20px; border-radius:12px; font-size:13px; max-width:70vw;
+    background:var(--panel); backdrop-filter:blur(20px); border:1px solid var(--stroke);
+    box-shadow:var(--shadow); opacity:0; pointer-events:none;
+    transition:opacity var(--anim-normal) var(--ease), transform var(--anim-normal) var(--ease);
+  }
+  .toast.show{ opacity:1; transform:translate(-50%,0); }
+  .toast.err{ border-color:var(--danger); color:var(--danger); }
+
+  .hint{ text-align:center; font-size:11.5px; color:var(--text-3); padding-bottom:6px; }
+  /* ---------- 拖入添加遮罩 ---------- */
+  .dropzone{ position:fixed; inset:14px; z-index:8; display:none; align-items:center; justify-content:center;
+    background:rgba(80,110,255,.10); border:3px dashed var(--accent); border-radius:22px;
+    opacity:0; transition:opacity var(--anim-normal) var(--ease); pointer-events:none; }
+  .dropzone.show{ display:flex; opacity:1; }
+  .dropzone .dz-inner{ text-align:center; color:var(--text-1); }
+  .dropzone .dz-inner .big{ font-size:54px; }
+  .dropzone .dz-inner p{ margin-top:10px; font-size:14px; }
+  .dropzone .dz-inner .sub2{ margin-top:6px; font-size:12px; color:var(--text-2); }
+
+  /* ---------- 图标右键菜单 ---------- */
+  .ctxmenu{
+    position:fixed; left:0; top:0; z-index:10; min-width:188px; padding:6px;
+    background:var(--panel); backdrop-filter:blur(30px) saturate(1.4);
+    border:1px solid var(--stroke-strong); border-radius:12px; box-shadow:var(--shadow);
+    opacity:0; pointer-events:none; transform:scale(.96); transform-origin:top left;
+    transition:opacity var(--anim-fast) var(--ease), transform var(--anim-fast) var(--ease);
+  }
+  .ctxmenu.open{ opacity:1; pointer-events:auto; transform:scale(1); }
+  .ctxmenu .hd{ padding:7px 11px 5px; font-size:11.5px; color:var(--text-3);
+    max-width:228px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ctxmenu .sep{ height:1px; margin:5px 7px; background:var(--stroke); }
+  .ctxmenu .mi{
+    display:flex; align-items:center; gap:10px; width:100%; padding:9px 11px;
+    border:0; border-radius:8px; background:transparent; color:var(--text-1);
+    font-family:inherit; font-size:13px; text-align:left; cursor:pointer;
+    transition:background var(--anim-fast) var(--ease), color var(--anim-fast) var(--ease);
+  }
+  .ctxmenu .mi:hover{ background:var(--glass-hover); }
+  .ctxmenu .mi .ic{ width:16px; text-align:center; font-size:12.5px; opacity:.9; flex:0 0 auto; }
+  .ctxmenu .mi .tx{ flex:1; }
+  .ctxmenu .mi.danger{ color:var(--danger); }
+  .ctxmenu .mi.danger:hover{ background:var(--danger-glow); }
+  .ctxmenu .mi[disabled]{ opacity:.4; pointer-events:none; }
+  /* 重命名：菜单原地变身成「输入框 + 确定/取消」，与移除的二次确认同一套思路，不弹系统对话框 */
+  .ctxmenu .ren{ display:flex; gap:6px; padding:2px 6px 3px; }
+  .ctxmenu .ren input{
+    flex:1; min-width:0; padding:7px 9px; border-radius:8px;
+    border:1px solid var(--stroke-strong); background:var(--glass); color:var(--text-1);
+    font-family:inherit; font-size:13px; outline:none;
+    transition:border-color var(--anim-fast) var(--ease);
+  }
+  .ctxmenu .ren input:focus{ border-color:var(--accent); }
+  .ctxmenu .ren button{
+    flex:0 0 auto; padding:7px 11px; border-radius:8px; cursor:pointer;
+    border:1px solid var(--stroke-strong); background:var(--glass); color:var(--text-1);
+    font-family:inherit; font-size:12.5px;
+    transition:background var(--anim-fast) var(--ease), border-color var(--anim-fast) var(--ease);
+  }
+  .ctxmenu .ren button:hover{ background:var(--glass-hover); }
+  .ctxmenu .ren button.primary{ border-color:var(--accent); color:var(--accent); }
+  .ctxmenu .ren button.primary:hover{ background:rgba(109,139,255,.16); }
+  .ctxmenu .err{ padding:0 11px 5px; font-size:11.5px; color:var(--danger); }
+
+  /* ---------- 已安装应用弹窗 ---------- */
+  .modal-scrim{ position:fixed; inset:0; z-index:7; background:rgba(0,0,0,.46); backdrop-filter:blur(2px);
+    opacity:0; pointer-events:none; transition:opacity var(--anim-medium) var(--ease); }
+  .modal-scrim.open{ opacity:1; pointer-events:auto; }
+  .modal{ position:fixed; z-index:8; left:50%; top:50%; transform:translate(-50%,-46%) scale(.98);
+    width:560px; max-width:94vw; max-height:82vh; display:flex; flex-direction:column;
+    background:var(--panel); backdrop-filter:blur(34px) saturate(1.4);
+    border:1px solid var(--stroke); border-radius:var(--radius-panel); box-shadow:var(--shadow);
+    opacity:0; pointer-events:none; transition:opacity var(--anim-medium) var(--ease), transform var(--anim-medium) var(--ease); }
+  .modal.open{ opacity:1; pointer-events:auto; transform:translate(-50%,-50%) scale(1); }
+  .modal-head{ display:flex; align-items:center; justify-content:space-between; padding:18px 20px 10px; }
+  .modal-head h2{ font-size:16px; font-weight:640; }
+  .modal-tools{ display:flex; gap:10px; padding:4px 20px 12px; }
+  .modal-tools input[type=search]{ flex:1; padding:10px 12px; border-radius:10px; border:1px solid var(--stroke);
+    background:var(--glass); color:var(--text-1); font-size:13px; font-family:inherit; outline:none; }
+  .modal-tools select{ width:132px; }
+  .modal-list{ flex:1; overflow-y:auto; padding:4px 14px 10px; display:flex; flex-direction:column; gap:5px; }
+  .modal-list::-webkit-scrollbar{ width:10px; }
+  .modal-list::-webkit-scrollbar-thumb{ background:var(--stroke-strong); border-radius:8px; border:3px solid transparent; background-clip:content-box; }
+  .irow{ display:flex; align-items:center; gap:11px; padding:7px 10px; border-radius:10px; border:1px solid transparent;
+    transition:background var(--anim-fast) var(--ease), border-color var(--anim-fast) var(--ease); }
+  .irow:hover{ background:var(--glass); border-color:var(--stroke); }
+  .irow .ick{ width:17px; height:17px; accent-color:var(--accent); flex:0 0 auto; cursor:pointer; }
+  .irow .mini{ width:30px; height:30px; border-radius:8px; display:grid; place-items:center; overflow:hidden; flex:0 0 auto; }
+  .irow .mini img{ width:100%; height:100%; object-fit:contain; }
+  .irow .mini .glyph{ width:100%; height:100%; display:grid; place-items:center; font-size:14px; color:#fff; font-weight:600; }
+  .irow .iname{ flex:1; font-size:13px; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .irow .ikind{ font-size:10.5px; color:var(--text-3); flex:0 0 auto; padding:0 2px; max-width:106px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .irow .imeta{ font-size:10.5px; color:var(--text-3); flex:0 0 auto; padding:0 2px; white-space:nowrap;
+    font-variant-numeric:tabular-nums; min-width:104px; text-align:right; }
+  .irow .imeta b{ color:var(--text-2); font-weight:600; }
+  .irow .iadd{ font-size:12px; color:var(--text-2); background:var(--glass); border:1px solid var(--stroke);
+    border-radius:8px; padding:5px 12px; cursor:pointer; flex:0 0 auto; font-family:inherit;
+    transition:background var(--anim-fast) var(--ease), color var(--anim-fast) var(--ease); }
+  .irow .iadd:hover{ background:var(--accent); color:#fff; border-color:transparent; }
+  .irow.added{ opacity:.5; }
+  .irow.added .iadd{ pointer-events:none; }
+  .irow.failed{ background:rgba(229,72,77,.10); border-color:rgba(229,72,77,.35); }
+  .irow.failed .iname{ color:#e5484d; }
+  .modal-foot{ display:flex; align-items:center; gap:8px; padding:12px 20px 18px; border-top:1px solid var(--stroke); }
+  .modal-foot .hint{ flex:1; text-align:left; }
+  .modal-foot .btn-ghost{ width:auto; padding:7px 12px; font-size:12px; flex:0 0 auto; }
+  .modal-foot .btn-primary{ flex:0 0 auto; }
+
+</style>
+</head>
+<body data-page-node-id="1QQnfMEknKu9NII3cumZvu">
+
+<div class="backdrop" data-page-node-id="1lIUsXK3GOUNLDaOsF8Fc4"><div class="g3" data-page-node-id="y532mMRiUyujjptOQJ5GpN"></div><div class="noise" data-page-node-id="JgBdhIV0clacJqycRPKx9s"></div></div>
+
+<div class="window" data-page-node-id="qO004CIPfCbHQNBiEGegeq">
+  <header class="titlebar" data-page-node-id="F6SPZ7y6b1Svbiwj4ktc0B">
+    <div class="brand" data-page-node-id="LkeIhPHGMg52JYn0qwQRhG">
+      <div class="mark" data-page-node-id="MHFPHUYAQuguZtQ2u2lKha">✦</div>
+      <div class="name" data-page-node-id="Z5UEPmSzqyU7PSvPRXIUAU">NOVA</div>
+    </div>
+    <span class="badge" id="modeBadge" data-state="pending" title="正在连接宿主…" data-page-node-id="O3RTNgMeZg7yvHEgxZx1J1"><i class="dot" aria-hidden="true" data-page-node-id="PewdGJ7qfCV96mHq105IH7"></i><span class="badge-txt" data-page-node-id="ChfztNEAosScHzkEw5tykq"></span></span>
+    <div class="spacer" data-page-node-id="5MkgU29HEgGpu0RsZ87yU8"></div>
+    <button class="icon-btn" id="openSettings" title="设置" data-page-node-id="Rz9NK4ifJWwFYkfLEuunvi">⚙</button>
+    <div class="wctrl" id="wctrl" data-page-node-id="1cr67LQwK2m4YHjJSPCFhy">
+      <button class="wbtn" id="winMin" title="最小化" data-page-node-id="AmcSkk9Hujk9uAdD3HVW08">
+        <svg viewBox="0 0 12 12" data-page-node-id="QLE7ybqWHsFMrrL04T7OUD"><path d="M2 6h8" data-page-node-id="KFATIGkPAEk76Pa32EmUEp"/></svg>
+      </button>
+      <button class="wbtn" id="winMax" title="最大化 / 还原" data-page-node-id="HyShvCk5MTh8L7AjXgNFQT">
+        <svg class="ic-max" viewBox="0 0 12 12" data-page-node-id="kTKRBfyiivE9oBtul90loG"><rect x="2" y="2" width="8" height="8" rx="1.6" data-page-node-id="ILhA8hZ2l2uVDt15PjRam5"/></svg>
+        <svg class="ic-restore" viewBox="0 0 12 12" data-page-node-id="CBnUlvFaCBQrNgIV1hyJo8">
+          <rect x="4.2" y="4.2" width="6.3" height="6.3" rx="1.2" data-page-node-id="J5k84wLpTUGk5fMkILBmPI"/>
+          <path d="M7.8 4.2V3.3A1.2 1.2 0 0 0 6.6 2.1H3.3A1.2 1.2 0 0 0 2.1 3.3v3.3a1.2 1.2 0 0 0 1.2 1.2h.9" data-page-node-id="OO54RwZdOYdGN9u7ArwtO9"/>
+        </svg>
+      </button>
+      <button class="wbtn wbtn-close" id="winClose" title="关闭" data-page-node-id="mf2tsMKIMWmAuhVSbymXo9">
+        <svg viewBox="0 0 12 12" data-page-node-id="rBIbVXZKPMXwN7bOSvDSYY"><path d="M2.6 2.6l6.8 6.8M9.4 2.6l-6.8 6.8" data-page-node-id="Yu6IN2wLi9JhChDzoCQUIQ"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="main" data-page-node-id="JJIK9M3LPP8DLrlqIFwTtg">
+    <div class="grid" id="grid" data-page-node-id="krDxIEWGr51qfLIJUvjruB"></div>
+  </main>
+</div>
+
+<div class="scrim" id="scrim" data-page-node-id="UHGGLpsvThFOF1ppjcPDxS"></div>
+<aside class="drawer" id="drawer" data-page-node-id="4CLLsIfS4pwUMPO4iw4AaF">
+  <h2 data-page-node-id="veu3j4iuF1V7ZNdv9pgpvH">设置</h2>
+  <div class="sub" id="drawerSub" data-page-node-id="jmxQMJdfVJSnH7Gw1bUid5">Nova Launcher · V1.0</div>
+
+  <div class="sec" data-page-node-id="njm45ds1BbPk2AIOHT2UJi">
+    <h3 data-page-node-id="WY2Zz2B5DcoUsIy7zmzPuy">外观</h3>
+    <div class="field" data-page-node-id="7HzGmOXFXtTp6R8QLZy3wO">
+      <label data-page-node-id="YYw6mwE1kCq5YiHXhRC7r4">图标大小 <b data-page-node-id="HvGw2dC9ne8ZiDokCSl3lS"><span id="sizeVal" data-page-node-id="mNr1LhRLH8XDC2sFUq2UHH">64</span> px</b></label>
+      <input type="range" id="sizeRange" min="36" max="160" step="4" value="64" data-page-node-id="cIVEEhpcKpQNQNlYMvufYK">
+    </div>
+    <div class="field" data-page-node-id="NyC3VchPCSSYcrRFPEaKxm">
+      <label data-page-node-id="gQIN9dUSIYQEJTp4A95S3S">每行图标数</label>
+      <select id="colsSel" data-page-node-id="THViqlq6LRx5JFQSMPxiBt">
+        <option value="4" data-page-node-id="HswF6365KwnPHrE2GqG86u">4</option>
+        <option value="5" data-page-node-id="rNKFwuW71mrqoPpPJPw5hk">5</option>
+        <option value="6" data-page-node-id="nWc0gpWG6Pt0ojWAx2srgR">6</option>
+        <option value="7" data-page-node-id="06fQMxnfs6HqldnlGJQHwv">7</option>
+        <option value="8" data-page-node-id="tcYJjC1uVKWwQzVQYkkJWl">8</option>
+        <option value="9" data-page-node-id="Nl9Y9aZJtqfWuxY6LkRwaE">9</option>
+        <option value="10" data-page-node-id="ONPvDtHT1K9UNcrHElaKQu">10</option>
+        <option value="11" data-page-node-id="SZb4LsWh4BBt25HOy0DnJc">11</option>
+        <option value="12" data-page-node-id="dcqoX7UkbhBElcgvXgSLEz">12</option>
+      </select>
+    </div>
+    <div class="field" data-page-node-id="J4JuhOCI2q3k85HmgUYx5f">
+      <label data-page-node-id="xDvLlbMhfAaDy7YklDiIeZ">主题</label>
+      <div class="seg" id="themeSeg" data-page-node-id="Imt97jiSC9acHAPqDYkAPh">
+        <button data-t="dark" class="on" data-page-node-id="Jexr2XtUhWkFgsKFIwvR4i">深色</button>
+        <button data-t="light" data-page-node-id="ShSYLCJqeoGJpHDzIrdXhn">浅色</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec" data-page-node-id="VXCLA34Eq6ShE9GFyL28Ws">
+    <h3 data-page-node-id="oOBvUgLB79bspm01pxjLlG">我的应用</h3>
+    <button class="btn-primary" id="addApp" data-page-node-id="P3RTtfWDxMo3wqjHHOSG3F">＋ 添加应用</button>
+    <button class="btn-ghost" id="addInstalled" style="margin-top:8px" data-page-node-id="ADs88I1k1EsKib86BN0TK7">🔍 从已安装应用添加</button>
+    <button class="btn-ghost" id="checkApps" style="margin-top:8px" data-page-node-id="7eM4muFVTQvtqA8BMB5b0H">🩺 检查应用有效性</button>
+    <div class="app-list" id="appList" data-page-node-id="qRZoEm6bWmYGmPAmRAeTho"></div>
+    <div class="chk-result" id="chkResult" hidden data-page-node-id="ntFS5ASyIERJFbMR6Q8ZzN"></div>
+  </div>
+
+  <div class="sec" data-page-node-id="ZJAeG6LsaGi96x6Ls21nkF">
+    <h3 data-page-node-id="87IdYGemb6L3BjBz0QHamp">数据</h3>
+    <button class="btn-ghost" id="revealData" data-page-node-id="jr6bqxa83oRkYZTbTFXDLT">打开数据目录</button>
+    <button class="btn-ghost" id="quitHost" style="margin-top:8px" data-page-node-id="OKZhQmtqqTXfB1KmhIZBXU">退出 Nova Launcher</button>
+  </div>
+</aside>
+
+<div class="toast" id="toast" data-page-node-id="vKBQwDXheY36b1P0434TWG"></div>
+
+  <div class="dropzone" id="dropzone" data-page-node-id="mWdeNPNHbI98lNAk0I2HCN"><div class="dz-inner" data-page-node-id="NJ5iFTVvyw5lEPqOVpODRC"><div class="big" data-page-node-id="rmdCVhzazfNMHw8GdvEhnY">⬇</div><p data-page-node-id="znOM4FprYNJeL40IN1Tzaq">把快捷方式或程序拖到这里即可添加</p><div class="sub2" data-page-node-id="GRPfhsi0AIQLlhtnGA6vdk">支持一次拖入多个，也可从「开始菜单」里拖</div></div></div>
+
+  <div class="ctxmenu" id="ctxmenu" role="menu" aria-hidden="true" data-page-node-id="uQB6pzQsBRkJjbxGpYkhne"></div>
+
+  <div class="modal-scrim" id="instScrim" data-page-node-id="xrMJUGWWB8A5zvK8F4BW7H"></div>
+  <div class="modal" id="instModal" aria-hidden="true" data-page-node-id="zFWnakBOLAVWwLBcsddH2V">
+    <div class="modal-head" data-page-node-id="H28XspJqCOOvXea7bJHPb2">
+      <h2 data-page-node-id="oFHUTKmcVscAzx7r8oWRsK">添加安装应用</h2>
+      <button class="icon-btn" id="instClose" title="关闭" data-page-node-id="nFFkPnEo44gLqWIyBD8Ztm">✕</button>
+    </div>
+    <div class="modal-tools" data-page-node-id="bnvKUB3elqFhwrumRhz5J4">
+      <input type="search" id="instSearch" placeholder="搜索应用名称…" autocomplete="off" data-page-node-id="t1rPkiqEo9NVNzDsZoF3dZ">
+      <select id="instSort" data-page-node-id="wyIbeRusHh8fZCT2zYcKXy">
+        <option value="freq" selected data-page-node-id="vfsy0n14bUHzJMVsPO1ii3">按使用频率</option>
+        <option value="installed" data-page-node-id="USPar9ytHMggPNLc1SWEmV">按安装时间</option>
+        <option value="name" data-page-node-id="EKQRiCkgxAnatEEWaJmj12">按名称</option>
+        <option value="path" data-page-node-id="wQ1VdSxc2Vdh0yo4jzQHWY">按路径</option>
+        <option value="kind" data-page-node-id="6kZvxGGE60ub8BjL7saq6U">按类型</option>
+        <option value="src" data-page-node-id="78L97Lj32YhFapr1ClJpLT">按来源</option>
+      </select>
+    </div>
+    <div class="modal-list" id="instList" data-page-node-id="CddA4lZojSPmDn8ED02plD"></div>
+    <div class="modal-foot" data-page-node-id="MHTOrcC0ctXtYQwNNzo5Ez">
+      <button class="btn-ghost" id="instSelAll" data-page-node-id="rwiE6kZZ7Og7LmzUSg7bZD">全选</button>
+      <button class="btn-ghost" id="instSelNone" data-page-node-id="AhJIFtYD28a6G1APP7GrkH">全不选</button>
+      <span class="hint" id="instCount" data-page-node-id="ZjDVDmHNvTkTn9mKyXmKFK">加载中…</span>
+      <button class="btn-primary" id="instAddSel" style="width:auto" data-page-node-id="eDHU5gZ4HVmFHdg24xfVFc">＋ 添加选中</button>
+    </div>
+  </div>
+
+<script>
+"use strict";
+
+const HOSTED = location.protocol === "http:";
+const TOKEN  = new URLSearchParams(location.search).get("t") || "";
+const $ = id => document.getElementById(id);
+
+let state = { apps: [], settings: { iconSize: 64, cols: 6, theme: "dark" } };
+
+/* ==========================================================================
+   演示模式数据（直接双击打开 HTML 时使用，不执行任何启动动作）
+   ========================================================================== */
+const DEMO = [
+  { name:"Chrome",    glyph:"🌐", h:214 },
+  { name:"VS Code",   glyph:"💻", h:212 },
+  { name:"微信",      glyph:"💬", h:142 },
+  { name:"Edge",      glyph:"🌊", h:187 },
+  { name:"Photoshop", glyph:"🎨", h:228 },
+  { name:"QQ",        glyph:"🐧", h:203 },
+  { name:"Terminal",  glyph:"▶",  h:220 },
+  { name:"Figma",     glyph:"🎯", h:0   }
+];
+const LSKEY = "nova-demo-v1";
+
+/* ==========================================================================
+   数据适配层：宿主模式走本地 HTTP API；演示模式走 localStorage
+   ========================================================================== */
+/* 刻意不用 URLSearchParams：它按 application/x-www-form-urlencoded 规则把「空格」
+   编成 '+'，而宿主用 [uri]::UnescapeDataString 解码（只认 %XX 不认 '+'），
+   于是 "C:\Program Files\..." 被解成 "C:\Program+Files\..." → 判定路径无效而被丢弃。
+   统一走 encodeURIComponent（空格 → %20），与 /api/icon 的编码方式一致。 */
+function encodeQuery(params) {
+  return Object.keys(params)
+    .map(k => encodeURIComponent(k) + "=" + encodeURIComponent(params[k] == null ? "" : String(params[k])))
+    .join("&");
+}
+
+async function apiGet(path, params) {
+  const res = await fetch(path + "?" + encodeQuery(Object.assign({ t: TOKEN }, params || {})), { cache: "no-store" });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+async function apiPost(path, body) {
+  const res = await fetch(path + "?" + encodeQuery({ t: TOKEN }), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+    cache: "no-store"
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+const API = {
+  hosted: HOSTED,
+
+  async state() {
+    if (HOSTED) {
+      /* ih/dpr：宿主用「客户区高度 − innerHeight×devicePixelRatio」反推浏览器自绘标题栏
+         的高度，再把窗口整体上移这么多，把那条栏顶到屏幕外。
+         必须乘 devicePixelRatio：宿主量的是物理像素，innerHeight 是 CSS 像素。 */
+      const d = await apiGet("/api/state", { ih: window.innerHeight, dpr: window.devicePixelRatio });
+      d.apps = Array.isArray(d.apps) ? d.apps : (d.apps ? [d.apps] : []);
+      return d;
+    }
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(LSKEY) || "null"); } catch (e) {}
+    const apps  = (saved && saved.apps) || DEMO.slice(0, 6).map(a => Object.assign({}, a));
+    const sets  = (saved && saved.settings) || { iconSize:64, cols:6, theme:"dark" };
+    return { apps, settings: sets, demo: true };
+  },
+
+  iconUrl(app, i, size) {
+    if (!HOSTED) return null;
+    /* 图标按「路径」取，不按行号：
+       行号会在拖拽排序后变化，一旦界面顺序与落盘顺序出现任何偏差，
+       按行号取的图标就会与名字整体错位（历史 bug：宿主 /api/move 判越界 →
+       顺序没存下 → 界面重排而图标仍是旧位置的）。
+       按路径取时，图标的来源与标签的来源是同一个 app 对象，天然一一对应。 */
+    const p = app && app.path;
+    if (!p || p.indexOf("shell:") === 0) return null;   // UWP/商店应用无本地图标 → 字形兜底
+    return "/api/icon?p=" + encodeURIComponent(p) + "&s=" + size + "&t=" + TOKEN;
+  },
+
+  async launch(i)            { return HOSTED ? apiGet("/api/launch", { i }) : { ok:true, msg:"演示模式：不会真的启动程序" }; },
+  async pick()               { return HOSTED ? apiGet("/api/pick")        : demoAdd(); },
+  async remove(i)            { return HOSTED ? apiGet("/api/remove", { i }) : demoRemove(i); },
+  async rename(i, p, name)   { return HOSTED ? apiGet("/api/rename", { i, p, n: name }) : demoRename(i, name); },
+  async move(from, to)       { return HOSTED ? apiGet("/api/move", { from, to }) : demoMove(from, to); },
+  async setting(k, v)        { return HOSTED ? apiGet("/api/setting", { k, v }) : demoSetting(k, v); },
+  async reveal(i)            { return HOSTED ? apiGet("/api/reveal", { i }) : { ok:false, msg:"演示模式" }; },
+  async addPath(p, n, k)     { return HOSTED ? apiGet("/api/add", { p, n, k }) : { ok:false, msg:"演示模式" }; },
+  async addBatch(items)      { return HOSTED ? apiPost("/api/addbatch", { items }) : { ok:false, msg:"演示模式" }; },
+  async installed(sort, q)   { return HOSTED ? apiGet("/api/installed", { sort: sort || "name", q: q || "" }) : { ok:false, apps:[], msg:"演示模式" }; },
+  async checkApps()          { return HOSTED ? apiGet("/api/checkapps") : { ok:true, total: state.apps.length, okCount: state.apps.length, bad: [] }; },
+  async quit()               { return HOSTED ? apiGet("/api/quit")        : { ok:false, msg:"演示模式" }; },
+  /* 心跳：既让宿主知道窗口还活着，也用来探测宿主是否已挂掉（连续失败就翻红点）。
+     顺带把 innerHeight / devicePixelRatio 报给宿主 —— 它靠这两个数算出自绘标题栏高度。
+     宿主会回一个 state：它在空闲节拍「守门」纠正窗口（还原后补回上移偏移、剥掉被浏览器
+     加回的标题栏样式），形态可能已在背后变化，所以每次心跳都据此同步「最大化/还原」图标。
+     注意 connOk() 必须在解析 JSON 之前调用：state 只是附带信息，解析失败不该被当成宿主挂了。 */
+  ping() {
+    if (!HOSTED) return;
+    fetch("/api/ping?" + encodeQuery({ t: TOKEN, ih: window.innerHeight, dpr: window.devicePixelRatio }))
+      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); connOk(); return r.json().catch(() => null); })
+      .then(d => {
+        if (!d) return;
+        if (d.state) applyWinChrome(d.state);
+      })
+      .catch(() => connFail());
+  },
+  async win(op)              { return HOSTED ? apiGet("/api/win", { op })  : { ok:false, msg:"演示模式" }; }
+};
+
+/* ---------- 演示模式实现 ---------- */
+function demoPersist() {
+  try { localStorage.setItem(LSKEY, JSON.stringify({ apps: state.apps, settings: state.settings })); } catch (e) {}
+}
+function demoAdd() {
+  const used = new Set(state.apps.map(a => a.name));
+  const next = DEMO.find(a => !used.has(a.name));
+  if (!next) return { ok:false, msg:"演示数据已全部添加" };
+  state.apps.push(Object.assign({}, next));
+  demoPersist();
+  return { ok:true, added:[next.name], msg:"已添加 " + next.name };
+}
+function demoRemove(i) {
+  const n = state.apps[i] ? state.apps[i].name : "";
+  state.apps.splice(i, 1); demoPersist();
+  return { ok:true, msg:"已移除 " + n };
+}
+function demoRename(i, name) {
+  if (!state.apps[i]) return { ok:false, msg:"应用不存在" };
+  state.apps[i].name = name; demoPersist();
+  return { ok:true, name: name, msg:"已重命名为 " + name };
+}
+function demoMove(from, to) {
+  const it = state.apps.splice(from, 1)[0];
+  state.apps.splice(to, 0, it); demoPersist();
+  return { ok:true };
+}
+function demoSetting(k, v) {
+  if (k === "iconSize") state.settings.iconSize = Math.max(36, Math.min(160, +v));
+  if (k === "cols")     state.settings.cols     = Math.max(3,  Math.min(10,  +v));
+  if (k === "theme")    state.settings.theme    = v;
+  demoPersist();
+  return { ok:true };
+}
+
+/* ==========================================================================
+   渲染
+   ========================================================================== */
+const grid = $("grid"), appList = $("appList");
+
+/* 路径/名称 → 稳定色相，用于无图标时的渐变底 */
+function hueOf(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360; return h; }
+function gradientOf(app) {
+  const h = (typeof app.h === "number") ? app.h : hueOf(app.name || "app");
+  return "linear-gradient(135deg, hsl(" + h + " 72% 54%), hsl(" + ((h + 34) % 360) + " 72% 62%))";
+}
+function glyphOf(app) {
+  if (app.glyph) return app.glyph;
+  const n = (app.name || "?").trim();
+  return n ? n[0].toUpperCase() : "?";
+}
+
+function instIconUrl(path, size) {
+  if (!HOSTED) return null;
+  if (path && path.indexOf("shell:") === 0) return null;
+  return "/api/icon?p=" + encodeURIComponent(path) + "&s=" + size + "&t=" + TOKEN;
+}
+
+function makeIcon(app, i, reqSize) {
+  const box = document.createElement("div");
+  box.className = "ico";
+  const glyph = document.createElement("div");
+  glyph.className = "glyph";
+  glyph.style.background = gradientOf(app);
+  glyph.textContent = glyphOf(app);
+  const url = API.iconUrl(app, i, reqSize);
+  if (url) {
+    const img = document.createElement("img");
+    img.alt = "";
+    img.addEventListener("error", () => box.classList.add("fallback"));
+    box.appendChild(img);
+    img.src = url;                       // 放在监听之后，避免缓存命中时错过 error
+  } else {
+    box.classList.add("fallback");
+  }
+  box.appendChild(glyph);
+  return box;
+}
+
+function renderGrid() {
+  grid.innerHTML = "";
+  closeCtx();                     // 重绘会把菜单锚定的图标换掉，先收起来
+  if (!state.apps.length) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    // 空状态只留最简提示（正常有应用时不会出现）
+    e.innerHTML = '<div class="big">＋</div><h2>还没有任何应用</h2>';
+    grid.appendChild(e);
+    return;
+  }
+  state.apps.forEach((app, i) => {
+    const t = document.createElement("div");
+    t.className = "tile" + (app.exists === false ? " missing" : "");
+    t.draggable = true;
+    t.dataset.index = i;
+    t.title = (app.path || "（无路径）") + (app.exists === false ? "（文件不存在）" : "") +
+              (HOSTED ? "\n右键：重命名 / 打开文件位置 / 移除快捷方式" : "");
+    t.appendChild(makeIcon(app, i, 256));
+    const lb = document.createElement("div");
+    lb.className = "label";
+    lb.textContent = app.name;
+    t.appendChild(lb);
+    t.addEventListener("click", () => launchApp(i, app));
+    grid.appendChild(t);
+  });
+}
+
+function renderList() {
+  appList.innerHTML = "";
+  if (!state.apps.length) {
+    const r = document.createElement("div");
+    r.className = "row";
+    r.style.opacity = ".62";
+    r.innerHTML = '<div class="mini"><div class="glyph" style="background:var(--glass);color:var(--text-3)">＋</div></div><div class="rname">暂无应用</div>';
+    appList.appendChild(r);
+    return;
+  }
+  state.apps.forEach((app, i) => {
+    const r = document.createElement("div");
+    r.className = "row";
+    const mini = document.createElement("div");
+    mini.className = "mini";
+    const url = API.iconUrl(app, i, 64);
+    if (url) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.addEventListener("error", () => { mini.innerHTML = ""; mini.appendChild(fallbackMini(app)); });
+      mini.appendChild(img);
+      img.src = url;
+    } else {
+      mini.appendChild(fallbackMini(app));
+    }
+    const col = document.createElement("div");
+    col.className = "rname";
+    const nm = document.createElement("div");
+    nm.textContent = app.name + (app.exists === false ? "（路径失效）" : "");
+    nm.style.color = app.exists === false ? "var(--danger)" : "";
+    const pt = document.createElement("div");
+    pt.className = "rpath";
+    pt.textContent = app.path || "演示数据";
+    col.appendChild(nm); col.appendChild(pt);
+
+    const rm = document.createElement("button");
+    rm.className = "rm";
+    rm.textContent = "移除";
+    rm.onclick = () => removeApp(i);
+    r.appendChild(mini); r.appendChild(col); r.appendChild(rm);
+    appList.appendChild(r);
+  });
+}
+function fallbackMini(app) {
+  const g = document.createElement("div");
+  g.className = "glyph";
+  g.style.background = gradientOf(app);
+  g.textContent = glyphOf(app);
+  return g;
+}
+
+function renderSettings() {
+  const s = state.settings;
+  $("sizeRange").value = s.iconSize;
+  $("sizeVal").textContent = s.iconSize;
+  $("colsSel").value = s.cols;
+  document.documentElement.style.setProperty("--icon-size", s.iconSize + "px");
+  document.documentElement.style.setProperty("--cols", s.cols);
+  document.documentElement.dataset.theme = s.theme;
+  document.querySelectorAll("#themeSeg button").forEach(b => b.classList.toggle("on", b.dataset.t === s.theme));
+}
+
+function renderAll() { renderGrid(); renderList(); renderSettings(); }
+
+/* ==========================================================================
+   行为
+   ========================================================================== */
+let toastTimer;
+function toast(msg, isErr) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.toggle("err", !!isErr);
+  t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), isErr ? 3200 : 1600);
+}
+
+async function launchApp(i, app) {
+  if (app.exists === false) { toast("路径失效，无法启动：" + app.name, true); return; }
+  try {
+    const r = await API.launch(i);
+    toast((r.ok ? "▶ " : "✕ ") + (r.msg || app.name), !r.ok);
+  } catch (e) {
+    toast("启动失败：" + e.message, true);
+  }
+}
+
+async function removeApp(i) {
+  try {
+    const r = await API.remove(i);
+    state.apps.splice(i, 1);
+    renderGrid(); renderList();
+    toast(r.msg || "已移除");
+  } catch (e) { toast("移除失败：" + e.message, true); }
+}
+
+/* 重命名只改「显示名」，不改磁盘上的文件名 —— 与「移除快捷方式」同一原则：
+   图标按 path 读取、与 app 对象天然绑定，所以改 name 不会引起图标与名字错位。 */
+async function renameApp(i, app, name) {
+  name = (name || "").trim();
+  if (!name || name === app.name) return;
+  try {
+    // 优先按 path 定位（行号会随排序变化），path 不可用时才退回行号
+    const r = await API.rename(i, app.path, name);
+    if (r && r.ok === false) throw new Error(r.msg || "服务端拒绝");
+    if (state.apps[i]) state.apps[i].name = (r && r.name) || name;
+    renderGrid(); renderList();               // 设置抽屉里的列表也要同步
+    toast("已重命名为 " + ((r && r.name) || name));
+  } catch (e) {
+    toast("重命名失败：" + e.message, true);
+  }
+}
+
+/* 在资源管理器中定位该快捷方式本体。
+   商店应用（shell:AppsFolder\…）没有对应的本地文件，直接说明清楚，别让用户以为坏了。 */
+async function revealApp(i, app) {
+  if (!HOSTED) { toast("演示模式：没有本地文件"); return; }
+  if (!app.path || app.path.indexOf("shell:") === 0) { toast("这是商店应用，没有可定位的文件"); return; }
+  try { await API.reveal(i); }
+  catch (e) { toast("打开文件位置失败：" + e.message, true); }
+}
+
+/* ---------- 拖拽排序：DOM 顺序即 apps 顺序，落库用 /api/move ---------- */
+let dragEl = null, dragFrom = -1;
+
+grid.addEventListener("dragstart", e => {
+  const t = e.target.closest(".tile"); if (!t) return;
+  dragEl = t; dragFrom = +t.dataset.index;
+  t.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", String(dragFrom));
+});
+
+grid.addEventListener("dragend", async () => {
+  if (!dragEl) return;
+  dragEl.classList.remove("dragging");
+  const dragTo = +dragEl.dataset.index;
+  dragEl = null;
+  if (dragFrom === dragTo || dragTo < 0) return;
+  const from = dragFrom, to = dragTo;
+  try {
+    const r = await API.move(from, to);
+    if (r && r.ok === false) throw new Error(r.msg || "服务端拒绝");
+    const it = state.apps.splice(from, 1)[0];
+    if (it) state.apps.splice(to, 0, it);
+    renderGrid(); renderList();
+  } catch (e) {
+    // 落盘失败时必须把界面拉回宿主的真实顺序，否则界面顺序与 apps.json 不一致，
+    // 之后再刷新就会出现「名字和图标不是原来那对」的观感
+    toast("排序保存失败：" + e.message, true);
+    try { await refresh(); } catch (_) { renderGrid(); }
+  }
+});
+
+grid.addEventListener("dragover", e => {
+  e.preventDefault();
+  if (!dragEl) return;
+  let ref = nearestRef(grid, e.clientX, e.clientY);
+  if (ref === dragEl) ref = dragEl.nextElementSibling;
+  if (ref == null) grid.appendChild(dragEl); else grid.insertBefore(dragEl, ref);
+  [...grid.querySelectorAll(".tile")].forEach((t, i) => { t.dataset.index = i; });
+});
+
+function nearestRef(container, x, y) {
+  const els = [...container.querySelectorAll(".tile:not(.dragging)")];
+  if (!els.length) return null;
+  let closest = null, closestDist = Infinity;
+  for (const el of els) {
+    const b = el.getBoundingClientRect();
+    const d = Math.hypot(x - (b.left + b.width / 2), y - (b.top + b.height / 2));
+    if (d < closestDist) { closestDist = d; closest = el; }
+  }
+  const b = closest.getBoundingClientRect();
+  const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+  const before = (y < cy - b.height * 0.25) || (Math.abs(y - cy) <= b.height * 0.5 && x < cx);
+  return before ? closest : closest.nextElementSibling;
+}
+
+/* ---------- 拖入文件自动添加 ---------- */
+let dragDepth = 0;
+const dropzone = $("dropzone");
+function showDrop() { dropzone.classList.add("show"); }
+function hideDrop() { dropzone.classList.remove("show"); }
+function isFileDrag(e) {
+  if (!e.dataTransfer || !e.dataTransfer.types) return false;
+  return Array.from(e.dataTransfer.types).indexOf("Files") >= 0;
+}
+window.addEventListener("dragenter", e => {
+  if (!isFileDrag(e)) return;
+  dragDepth++; if (dragDepth === 1) showDrop();
+});
+window.addEventListener("dragover", e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = "copy";
+});
+window.addEventListener("dragleave", e => {
+  if (!isFileDrag(e)) return;
+  dragDepth--; if (dragDepth <= 0) { dragDepth = 0; hideDrop(); }
+});
+/* 从拖放事件里取出「文件引用」（路径 + 文件名）。
+   ⚠ 浏览器**不给绝对路径**：webkitGetAsEntry().fullPath 拿到的只是文件名（形如 /Chrome.lnk），
+   file.path 又只有 Electron / WebView2 之类的宿主才提供。所以这里能拿多少给多少，
+   拿不到的交给宿主按文件名在 桌面 / 开始菜单 / 快速启动 / 下载 里找回来（宿主 Resolve-AppRef）。 */
+function fileRefsFrom(e) {
+  const out = [];
+  const push = (path, name) => {
+    const p = (path || "").trim(), n = (name || "").trim();
+    if (!p && !n) return;
+    if (out.some(o => o.p === p && o.n === n)) return;   // 同一个文件可能被两条通道都取到
+    out.push({ p, n, k: "" });
+  };
+  const dt = e.dataTransfer;
+  const items = dt.items;
+  if (items && items.length) {
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it || it.kind !== "file") continue;          // 只认文件；拖动的文本 / URL 直接忽略
+      let name = "", path = "", file = null, entry = null;
+      try { file = it.getAsFile ? it.getAsFile() : null; } catch (_) {}
+      if (file && file.name) name = file.name;
+      try { entry = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null; } catch (_) {}
+      if (entry && entry.isFile) {
+        if (!name && entry.name) name = entry.name;
+        let fp = entry.fullPath || "";
+        if (fp[0] === "/") fp = fp.slice(1);
+        // 只有「带目录分隔符」的才算真路径；只剩文件名的情况留给宿主按名字解析
+        if (fp && (fp.indexOf("/") >= 0 || fp.indexOf("\\") >= 0)) path = fp;
+      }
+      if (!path && file && file.path) path = file.path;
+      push(path, name);
+    }
+  }
+  if (!out.length) {
+    for (const f of (dt.files || [])) push(f.path || "", f.name || "");
+  }
+  return out;
+}
+
+window.addEventListener("drop", e => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault(); dragDepth = 0; hideDrop();
+  const refs = fileRefsFrom(e);
+  if (!refs.length) { toast("没能识别拖入的内容，请拖快捷方式或 .exe 文件", true); return; }
+  addPaths(refs);
+});
+
+async function addPaths(refs) {
+  try {
+    const res = await API.addBatch(refs);
+    await refresh();
+    const okN = (res && res.added) || 0;
+    const bad = (res && res.failed) || [];
+    if (bad.length) {
+      const head = bad.slice(0, 3).map(f => f.name + "（" + f.why + "）").join("、");
+      toast("已添加 " + okN + " 个，失败 " + bad.length + " 个：" + head + (bad.length > 3 ? " 等" : ""), true);
+    } else if (okN) {
+      const one = (okN === 1 && res.addedItems && res.addedItems[0]) ? res.addedItems[0] : null;
+      toast(one ? ("＋ 已添加「" + one.name + "」") : ("＋ 已添加 " + okN + " 个应用"));
+    } else {
+      toast("未能添加（文件可能不存在或已添加）", true);
+    }
+  } catch (e) {
+    toast("添加失败：" + e.message, true);
+  }
+}
+
+/* ---------- 设置交互 ---------- */
+const openDrawer  = () => { $("drawer").classList.add("open"); $("scrim").classList.add("open"); };
+const closeDrawer = () => { $("drawer").classList.remove("open"); $("scrim").classList.remove("open"); };
+$("openSettings").onclick = openDrawer;
+$("scrim").onclick = closeDrawer;
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closeCtx(); closeDrawer(); } });
+
+/* ==========================================================================
+   图标右键菜单
+   ==========================================================================
+   菜单内容随目标图标重建（标题行显示应用名），三件事都在**菜单原地**完成，不弹系统对话框：
+   ① 重命名 → 菜单变身成「输入框 + 确定/取消」（回车确定、Esc 取消），只改显示名不动磁盘文件；
+   ② 移除 → 二次确认，第一次点变色提示「再点一次确认移除」，既不误删也不打断操作；
+   ③ 打开 / 打开文件位置 → 直接执行。
+
+   ⚠ 触发必须并入下面那个 contextmenu 处理器：全局拦截是 capture 阶段 +
+   stopPropagation，冒泡阶段挂在 tile 上的监听器**永远收不到事件**。 */
+const ctx = $("ctxmenu");
+let ctxPos = { x: 0, y: 0 };
+
+function closeCtx() {
+  ctx.classList.remove("open");
+  ctx.setAttribute("aria-hidden", "true");
+  ctxPos = { x: 0, y: 0 };
+}
+
+function positionCtx(x, y) {
+  // 先量后摆：贴近右下角时自动翻到另一侧，别让菜单跑到屏幕外
+  const r = ctx.getBoundingClientRect();
+  const pad = 8;
+  let left = x, top = y;
+  if (left + r.width + pad > window.innerWidth)  left = Math.max(pad, window.innerWidth  - r.width  - pad);
+  if (top  + r.height + pad > window.innerHeight) top  = Math.max(pad, window.innerHeight - r.height - pad);
+  ctx.style.left = left + "px";
+  ctx.style.top  = top  + "px";
+}
+
+function buildCtx(i, app, mode) {
+  mode = mode || "normal";
+  ctx.innerHTML = "";
+
+  const hd = document.createElement("div");
+  hd.className = "hd";
+  hd.textContent = app.name || "未命名";
+  ctx.appendChild(hd);
+  ctx.appendChild(Object.assign(document.createElement("div"), { className: "sep" }));
+
+  const add = (icon, text, fn, opts) => {
+    opts = opts || {};
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "mi" + (opts.danger ? " danger" : "");
+    const ic = document.createElement("span"); ic.className = "ic"; ic.textContent = icon;
+    const tx = document.createElement("span"); tx.className = "tx"; tx.textContent = text;
+    b.appendChild(ic); b.appendChild(tx);
+    if (opts.disabled) b.disabled = true;
+    b.onclick = ev => { ev.stopPropagation(); fn(); };
+    ctx.appendChild(b);
+    return b;
+  };
+
+  // 原地切态：换掉菜单内容但**位置不动**（鼠标不跑偏，像菜单自己变身）
+  const reflow = m => { buildCtx(i, app, m); positionCtx(ctxPos.x, ctxPos.y); };
+
+  if (mode === "edit") { buildRenameEditor(i, app, reflow); return; }
+
+  const missing = app.exists === false;
+  add("▶", missing ? "文件已失效" : "打开", () => { closeCtx(); launchApp(i, app); }, { disabled: missing });
+  add("📂", "打开文件位置", () => { closeCtx(); revealApp(i, app); },
+      { disabled: !app.path || app.path.indexOf("shell:") === 0 });
+  add("✎", "重命名", () => reflow("edit"));
+
+  ctx.appendChild(Object.assign(document.createElement("div"), { className: "sep" }));
+
+  if (mode === "confirmRemove") {
+    add("⚠", "再点一次确认移除", () => { closeCtx(); removeApp(i); }, { danger: true });
+  } else {
+    add("✕", "移除快捷方式", () => reflow("confirmRemove"), { danger: true });
+  }
+}
+
+/* 重命名编辑态：输入框自动聚焦并全选，回车确定、Esc / 取消 退出。
+   只改 Nova 里显示的名字，**不动磁盘上的快捷方式文件**（与「移除」同一原则）。 */
+function buildRenameEditor(i, app, reflow) {
+  const wrap = document.createElement("div");
+  wrap.className = "ren";
+  const inp = document.createElement("input");
+  inp.type = "text";
+  inp.value = app.name || "";
+  inp.maxLength = 60;
+  inp.setAttribute("aria-label", "应用名称");
+  const ok = document.createElement("button");
+  ok.type = "button"; ok.className = "primary"; ok.textContent = "确定";
+  const cancel = document.createElement("button");
+  cancel.type = "button"; cancel.textContent = "取消";
+  wrap.appendChild(inp); wrap.appendChild(ok); wrap.appendChild(cancel);
+  ctx.appendChild(wrap);
+
+  const tip = document.createElement("div");
+  tip.className = "err";
+  tip.style.display = "none";
+  ctx.appendChild(tip);
+
+  const submit = () => {
+    const v = inp.value.trim();
+    if (!v) { tip.textContent = "名称不能为空"; tip.style.display = ""; inp.focus(); return; }
+    closeCtx();
+    renameApp(i, app, v);
+  };
+  ok.onclick = ev => { ev.stopPropagation(); submit(); };
+  cancel.onclick = ev => { ev.stopPropagation(); reflow("normal"); };
+  inp.onkeydown = ev => {
+    ev.stopPropagation();               // 不拦的话 Esc 会命中全局 keydown 把菜单直接关掉
+    if (ev.key === "Enter")  { ev.preventDefault(); submit(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); reflow("normal"); }
+  };
+  // 焦点等菜单真正可见后再给：菜单此刻才加上 .open，过早 focus 在应用窗口里可能落空
+  setTimeout(() => { try { inp.focus(); inp.select(); } catch (e) {} }, 0);
+}
+
+function showCtx(i, app, x, y) {
+  closeCtx();
+  ctxPos = { x, y };
+  buildCtx(i, app, "normal");
+  positionCtx(x, y);
+  ctx.classList.add("open");
+  ctx.setAttribute("aria-hidden", "false");
+}
+
+// 点到别处 / 滚轮 / 窗口失焦 / 改尺寸 都收起来，避免菜单悬在那里指着旧位置
+window.addEventListener("mousedown", e => {
+  if (ctx.classList.contains("open") && !ctx.contains(e.target)) closeCtx();
+}, true);
+window.addEventListener("wheel", () => closeCtx(), { passive: true });
+window.addEventListener("blur", () => closeCtx());
+window.addEventListener("resize", () => closeCtx());
+
+/* M31.3（2026-09-13）：最大化⇄窗口化切换后，新暴露区域的瓦片可能滞留在
+   「未光栅化」状态（整块纯色 32,32,32，尤其窗口被其他窗口遮挡时 Chromium
+   会暂停光栅化）。这里在 resize 稳定后对 <body> 做一次 transform 开关，
+   强制合成器整帧重绘，确保新尺寸下画面完整。 */
+let _repaintTimer = null;
+window.addEventListener("resize", () => {
+  clearTimeout(_repaintTimer);
+  _repaintTimer = setTimeout(() => {
+    const b = document.body.style;
+    b.transform = "translateZ(0)";
+    requestAnimationFrame(() => requestAnimationFrame(() => { b.transform = ""; }));
+  }, 150);
+});
+
+/* ==========================================================================
+   屏蔽右键菜单
+   ==========================================================================
+   Edge/Chromium 没有「关闭右键菜单」的启动参数，只能用 JS 拦 contextmenu。
+   例外：搜索框等可编辑文本控件放行，否则右键粘贴、拼写检查会一起失效。
+   图标上则改弹自绘菜单（见上）。 */
+function isEditableTarget(t) {
+  if (!t || !t.tagName) return false;
+  const tag = t.tagName.toLowerCase();
+  if (tag === "textarea") return true;
+  if (tag === "input") {
+    const type = (t.getAttribute("type") || "text").toLowerCase();
+    return ["text", "search", "url", "email", "password", "tel", "number"].indexOf(type) >= 0;
+  }
+  return t.isContentEditable === true;
+}
+document.addEventListener("contextmenu", e => {
+  if (isEditableTarget(e.target)) return;   // 可编辑控件保留原生菜单
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (ctx.contains(e.target)) return;       // 点在菜单自己身上：只吞掉原生菜单
+  const t = e.target.closest ? e.target.closest(".tile") : null;
+  if (!t) { closeCtx(); return; }
+  const i = +t.dataset.index;
+  const app = state.apps[i];
+  if (app) showCtx(i, app, e.clientX, e.clientY);
+}, { capture: true });
+
+/* ==========================================================================
+   窗口控制（最小化 / 最大化还原 / 关闭）
+   ==========================================================================
+   宿主启动时已把浏览器窗口去边框并铺满**工作区**（任务栏仍可见、照常可用），系统标题栏上的
+   那三个按钮随之消失，所以这里自己画一组，通过 /api/win 交给宿主用 Win32 操作真实窗口。 */
+function applyWinChrome(state) {
+  const b = $("winMax");
+  if (!b) return;
+  const windowed = state === "windowed";       // 宿主报回的窗口形态：windowed / maximized / minimized / unknown
+  b.classList.toggle("is-full", !windowed);    // 非窗口化（无边框最大化）时显示「还原」图标
+  b.title = windowed ? "最大化" : "还原为窗口";
+  // 仅窗口化时给 body 挂 is-windowed → 启用标题栏的 JS 拖拽（setupTitlebarDrag：拖动移动整窗、跟随鼠标）；
+  // 最大化时移除该标记（铺满工作区无处可移，标题栏不可拖）。此 class 随每次心跳报回的 state 保持同步。
+  document.body.classList.toggle("is-windowed", windowed);
+}
+/* 宿主一旦退出（心跳连续失败或窗口操作失败），置为降级态：
+   关闭键不再经过 API，直接走浏览器原生关窗（--app 窗口可被 window.close() 关闭）；
+   最小化/最大化在 Web 平台没有原生 API，宿主不在就无法执行，按钮置灰并说明原因。 */
+let hostDead = false;
+function markHostDead() {
+  if (hostDead) return;
+  hostDead = true;
+  document.body.classList.add("host-dead");
+  const mi = $("winMin"), ma = $("winMax");
+  if (mi) mi.title = "宿主已退出，无法最小化";
+  if (ma) ma.title = "宿主已退出，无法最大化 / 还原";
+}
+function closeViaBrowser() {
+  window.close();                             // --app 模式下可直接关掉窗口
+  setTimeout(() => toast("浏览器未能关闭窗口，请按 Alt+F4", true), 300);
+}
+async function winOp(op) {
+  if (!HOSTED) { toast("演示模式：这是普通浏览器窗口，请用系统自带按钮", true); return; }
+  if (hostDead) {
+    if (op === "close") { closeViaBrowser(); return; }
+    toast("宿主已退出，最小化 / 最大化不可用；可点 ✕ 关闭窗口", true);
+    return;
+  }
+  try {
+    const r = await API.win(op);
+    if (r && r.ok === false) throw new Error(r.msg || "操作失败");
+    if (op === "max") applyWinChrome(r.state);
+  } catch (e) {
+    if (op === "close") { closeViaBrowser(); return; }   // 关闭绝不依赖宿主：API 失败立即降级
+    markHostDead();
+    toast("宿主未连接，最小化 / 最大化不可用（可点 ✕ 关闭窗口）", true);
+  }
+}
+$("winMin").onclick   = () => winOp("min");
+$("winMax").onclick   = () => winOp("max");
+$("winClose").onclick = () => winOp("close");
+applyWinChrome("maximized");                  // 打开时即为无边框最大化，先按最大化渲染图标
+if (HOSTED) API.win("state").then(r => { if (r && r.ok) applyWinChrome(r.state); }).catch(() => {});
+
+/* --------------------------------------------------------------------------
+   窗口化拖拽移动（M36）：标题栏按住左键拖动 → 整窗跟随鼠标平移。
+   为何不用 CSS -webkit-app-region:drag：本项目 --app 窗被宿主从外部剥了 WS_CAPTION 又
+   SetWindowRgn 裁过顶栏，实测该属性不触发系统拖动，还会把标题栏变成「非客户区」吞掉 DOM
+   鼠标事件。故改显式方案：
+     pointerdown 记基准（鼠标屏幕点 + 窗口当前左上角，物理px）
+     → pointermove 用 (当前鼠标 − 起始鼠标) × devicePixelRatio 算窗口新左上角
+     → op=move 交宿主 SetWindowPos 平移（只改位置，不动尺寸/层级/焦点）。
+   跟手要点：① setPointerCapture 让快速拖出窗口也不丢事件；② rAF 合帧 + in-flight 合并，
+   避免高频 pointermove 堆积请求（宿主单请求仅 SetWindowPos，localhost ~1-3ms）。
+   仅窗口化(body.is-windowed)生效；点在按钮等控件上不触发。 */
+(function setupTitlebarDrag() {
+  const bar = document.querySelector(".titlebar");
+  if (!bar) return;
+
+  let dragging = false, pid = null;       // 是否拖动中 / 当前 pointerId
+  let startMX = 0, startMY = 0;           // 起始鼠标屏幕坐标（CSS px）
+  let startL = 0, startT = 0;             // 起始窗口左上角（物理 px）
+  let rafId = 0, latest = null;           // rAF 合帧句柄 / 本帧最新目标
+  let busy = false, queued = null;        // op=move 是否在途 / 在途时暂存的最新目标
+
+  const phys = v => Math.round(v * (window.devicePixelRatio || 1));   // CSS px → 物理 px
+
+  function sendMove(x, y) {
+    if (busy) { queued = { x, y }; return; }   // 在途：只留最新点，回来再发，绝不堆请求
+    busy = true;
+    apiGet("/api/win", { op: "move", x, y }).catch(() => {}).then(() => {
+      busy = false;
+      if (queued && dragging) { const q = queued; queued = null; sendMove(q.x, q.y); }
+    });
+  }
+  function endDrag() {
+    dragging = false;
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    if (pid != null) { try { bar.releasePointerCapture(pid); } catch (_) {} pid = null; }
+  }
+
+  bar.addEventListener("pointerdown", async e => {
+    if (!HOSTED || hostDead || e.button !== 0) return;                   // 仅宿主在线 + 左键
+    if (!document.body.classList.contains("is-windowed")) return;        // 仅窗口化可拖
+    if (e.target.closest("button, input, a, .icon-btn, .wctrl")) return;  // 控件上不拖
+    startMX = e.screenX; startMY = e.screenY;                            // await 前先记鼠标基准
+    try { bar.setPointerCapture(e.pointerId); pid = e.pointerId; } catch (_) {}
+    let r; try { r = await apiGet("/api/win", { op: "rect" }); } catch (_) { endDrag(); return; }
+    if (!r || !r.ok || !r.rect) { endDrag(); return; }
+    startL = r.rect.l; startT = r.rect.t;                                // 窗口当前左上角(物理px)
+    busy = false; queued = null; latest = null; dragging = true;
+    e.preventDefault();                                                  // 阻止拖动时选中文字/图片
+  });
+  bar.addEventListener("pointermove", e => {
+    if (!dragging) return;
+    latest = { x: startL + phys(e.screenX - startMX), y: startT + phys(e.screenY - startMY) };
+    if (rafId) return;                                                   // 本帧已排程 → 合帧
+    rafId = requestAnimationFrame(() => { rafId = 0; if (latest && dragging) sendMove(latest.x, latest.y); });
+  });
+  bar.addEventListener("pointerup", endDrag);
+  bar.addEventListener("pointercancel", endDrag);
+})();
+
+let sizeTimer;
+$("sizeRange").oninput = e => {
+  const v = +e.target.value;
+  state.settings.iconSize = v;
+  $("sizeVal").textContent = v;
+  document.documentElement.style.setProperty("--icon-size", v + "px");
+  clearTimeout(sizeTimer);
+  sizeTimer = setTimeout(() => API.setting("iconSize", v).catch(() => {}), 220);
+};
+
+$("colsSel").onchange = e => {
+  const v = +e.target.value;
+  state.settings.cols = v;
+  document.documentElement.style.setProperty("--cols", v);
+  API.setting("cols", v).catch(() => {});
+};
+
+$("themeSeg").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.settings.theme = b.dataset.t;
+  renderSettings();
+  API.setting("theme", b.dataset.t).catch(() => {});
+};
+
+$("addApp").onclick = async () => {
+  try {
+    const r = await API.pick();
+    if (r.cancelled) return;
+    if (r.ok) { await refresh(); toast("＋ " + (r.msg || "已添加")); }
+    else { toast(r.msg || "未添加任何应用", !r.cancelled); }
+  } catch (e) { toast("添加失败：" + e.message, true); }
+};
+
+$("revealData").onclick = () => API.reveal().then(() => toast("已打开数据目录")).catch(() => {});
+$("quitHost").onclick   = () => API.quit().then(() => toast("正在退出…")).catch(() => {});
+
+/* ---------- 一键检查应用有效性 ----------
+   宿主 /api/checkapps 逐项验证：文件存在性 + .lnk 深挖目标（快捷方式在、目标被卸载也算失效）。
+   检查结果回写 state.apps[i].exists → 网格与抽屉列表立刻标红；失效项集中在面板里可单独/一键移除。
+   移除后重新跑一遍检查：宿主行号在删除后会位移，重查比在旧结果上做算术可靠。 */
+$("checkApps").onclick = () => {
+  if (!HOSTED) { toast("演示模式不可用", true); return; }
+  runAppCheck();
+};
+
+async function runAppCheck() {
+  const btn = $("checkApps");
+  btn.disabled = true; btn.textContent = "⏳ 正在检查…";
+  try {
+    const r = await API.checkApps();
+    if (!r.ok) { toast(r.msg || "检查失败", true); return; }
+    const bad = Array.isArray(r.bad) ? r.bad : [];
+    state.apps.forEach(a => { if (a) a.exists = true; });   // 先全部复位，再按检查结果标失效
+    bad.forEach(b => { if (state.apps[b.i]) state.apps[b.i].exists = false; });
+    renderGrid(); renderList();
+    if (!bad.length) { $("chkResult").hidden = true; toast("✓ 全部 " + r.total + " 个应用均有效"); return; }
+    renderChkPanel(bad, r.total);
+  } catch (e) { toast("检查失败：" + e.message, true); }
+  finally { btn.disabled = false; btn.textContent = "🩺 检查应用有效性"; }
+}
+
+function renderChkPanel(bad, total) {
+  const panel = $("chkResult");
+  panel.innerHTML = "";
+  const hd = document.createElement("div");
+  hd.className = "chk-hd";
+  hd.append("发现 ");
+  const b1 = document.createElement("b"); b1.textContent = bad.length; hd.appendChild(b1);
+  hd.append(" / " + total + " 个应用已失效");
+  panel.appendChild(hd);
+
+  bad.forEach(b => {
+    const it = document.createElement("div"); it.className = "chk-item";
+    const info = document.createElement("div"); info.className = "chk-info";
+    const nm = document.createElement("div"); nm.className = "chk-name"; nm.textContent = b.name;
+    const why = document.createElement("div"); why.className = "chk-why";
+    why.textContent = (b.reason || "路径失效") + " · " + (b.path || "");
+    info.appendChild(nm); info.appendChild(why);
+    const rm = document.createElement("button"); rm.className = "rm"; rm.textContent = "移除";
+    rm.onclick = async () => {
+      rm.disabled = true;
+      try { await API.remove(b.i); await refresh(); await runAppCheck(); }
+      catch (e) { toast("移除失败：" + e.message, true); rm.disabled = false; }
+    };
+    it.appendChild(info); it.appendChild(rm);
+    panel.appendChild(it);
+  });
+
+  if (bad.length > 1) {
+    const all = document.createElement("button");
+    all.className = "rm-all";
+    all.textContent = "全部移除（" + bad.length + "）";
+    all.onclick = async () => {
+      all.disabled = true;
+      try {
+        const sorted = bad.slice().sort((x, y) => y.i - x.i);   // 倒序删，行号位移不串
+        for (const b of sorted) { await API.remove(b.i); }
+        await refresh();
+        $("chkResult").hidden = true;
+        toast("已移除 " + bad.length + " 个失效应用");
+      } catch (e) { toast("批量移除失败：" + e.message, true); await runAppCheck(); }
+    };
+    panel.appendChild(all);
+  }
+  panel.hidden = false;
+}
+
+/* ---------- 已安装应用弹窗 ---------- */
+const instModal = $("instModal"), instScrim = $("instScrim"), instList = $("instList");
+const openInstalled  = () => { instModal.classList.add("open"); instScrim.classList.add("open"); loadInstalled(); };
+const closeInstalled = () => { instModal.classList.remove("open"); instScrim.classList.remove("open"); };
+$("addInstalled").onclick = () => { if (!HOSTED) { toast("演示模式不可用", true); return; } closeDrawer(); openInstalled(); };
+$("instClose").onclick = closeInstalled;
+instScrim.onclick = closeInstalled;
+$("instSort").onchange = () => loadInstalled();
+let instSearchTimer;
+$("instSearch").oninput = () => { clearTimeout(instSearchTimer); instSearchTimer = setTimeout(loadInstalled, 250); };
+
+function glyphMini(app) {
+  const g = document.createElement("div");
+  g.className = "glyph";
+  g.style.background = gradientOf(app);
+  g.textContent = glyphOf(app);
+  return g;
+}
+
+/* 勾选状态：默认全不选；底部显示已选数量 */
+let instTotal = 0;
+function instSelCount() {
+  return instList.querySelectorAll(".ick:checked:not(:disabled)").length;
+}
+function updateInstSel() {
+  const n = instSelCount();
+  $("instCount").textContent = instTotal + " 个已安装应用 · " +
+    (n ? "已选 " + n + " 个" : "勾选后点「添加选中」");
+}
+/* 全选 / 全不选（已添加的项是 disabled，自动跳过） */
+function setAllInst(checked) {
+  instList.querySelectorAll(".ick").forEach(c => { if (!c.disabled) c.checked = checked; });
+  updateInstSel();
+}
+$("instSelAll").onclick = () => setAllInst(true);
+$("instSelNone").onclick = () => setAllInst(false);
+
+async function loadInstalled() {
+  if (!HOSTED) return;
+  const sort = $("instSort").value;
+  const q = $("instSearch").value.trim();
+  $("instCount").textContent = "加载中…";
+  try {
+    const d = await API.installed(sort, q);
+    const apps = Array.isArray(d.apps) ? d.apps : [];
+    const myPaths = new Set(state.apps.map(a => (a.path || "").toLowerCase()));
+    instList.innerHTML = "";
+    instTotal = apps.length;
+    if (!apps.length) {
+      instList.innerHTML = '<div class="hint" style="padding:30px;text-align:center">未找到匹配的应用</div>';
+      $("instCount").textContent = "0 个结果";
+      return;
+    }
+    for (const app of apps) {
+      const row = document.createElement("div");
+      row.className = "irow";
+      row.dataset.path = app.path; row.dataset.name = app.name; row.dataset.kind = app.kind;
+      const already = myPaths.has((app.path || "").toLowerCase());
+      if (already) row.classList.add("added");
+      const ck = document.createElement("input");
+      ck.type = "checkbox"; ck.className = "ick"; ck.checked = false; ck.disabled = already;
+      ck.addEventListener("change", updateInstSel);
+      const mini = document.createElement("div"); mini.className = "mini";
+      const iu = instIconUrl(app.path, 64);
+      if (iu) {
+        const img = document.createElement("img"); img.alt = "";
+        img.addEventListener("error", () => { mini.innerHTML = ""; mini.appendChild(glyphMini(app)); });
+        mini.appendChild(img); img.src = iu;
+      } else { mini.appendChild(glyphMini(app)); }
+      const nm = document.createElement("div"); nm.className = "iname"; nm.textContent = app.name; nm.title = app.name;
+      // 使用频率 + 安装时间（数值/日期均由宿主生成，不含用户文本）
+      const mt = document.createElement("div"); mt.className = "imeta";
+      const freq = Number(app.freq) || 0;
+      const meta = [];
+      meta.push(freq > 0 ? "用过 <b>" + freq + "</b> 次" : "未使用过");
+      if (app.installedAt) meta.push(app.installedAt);
+      mt.innerHTML = meta.join(" · ");
+      const kd = document.createElement("div"); kd.className = "ikind";
+      const kn = app.kind === "uwp" ? "UWP" : app.kind === "registry" ? "程序" : app.kind === "lnk" ? "开始菜单" : (app.kind || "");
+      kd.textContent = kn + (app.src ? " · " + app.src : "");
+      const add = document.createElement("button"); add.className = "iadd"; add.textContent = already ? "已添加" : "添加";
+      add.onclick = () => addInstalledApp(app, row);
+      row.appendChild(ck); row.appendChild(mini); row.appendChild(nm); row.appendChild(mt); row.appendChild(kd); row.appendChild(add);
+      instList.appendChild(row);
+    }
+    updateInstSel();
+  } catch (e) {
+    $("instCount").textContent = "加载失败：" + e.message;
+  }
+}
+
+async function addInstalledApp(app, row) {
+  try {
+    const r = await API.addPath(app.path, app.name, app.kind);
+    if (r && r.ok) {
+      toast("＋ 已添加 " + app.name);
+      markRowAdded(row);
+      await refresh();
+    } else {
+      row.classList.add("failed");
+      toast(r && r.msg ? r.msg : "添加失败", true);
+    }
+  } catch (e) { toast("添加失败：" + e.message, true); }
+}
+
+function markRowAdded(row) {
+  row.classList.remove("failed");
+  row.classList.add("added");
+  const b = row.querySelector(".iadd"); if (b) b.textContent = "已添加";
+  const c = row.querySelector(".ick"); if (c) { c.checked = false; c.disabled = true; }
+}
+
+$("instAddSel").onclick = async () => {
+  const rows = Array.from(instList.querySelectorAll(".irow"));
+  const sel = rows.filter(r => { const c = r.querySelector(".ick"); return c && c.checked && !c.disabled; });
+  if (!sel.length) { toast("请先勾选要添加的应用"); return; }
+
+  const btn = $("instAddSel");
+  if (btn.disabled) return;
+  btn.disabled = true; btn.textContent = "添加中…";
+  try {
+    // 一次批量提交：宿主一次落盘并逐项回报，避免逐条请求时个别失败被静默丢掉
+    const res = await API.addBatch(sel.map(r => ({ p: r.dataset.path, n: r.dataset.name, k: r.dataset.kind })));
+    const okPaths = new Set((((res || {}).addedItems) || []).map(x => String(x.path || "").toLowerCase()));
+    sel.forEach(r => {
+      if (okPaths.has(String(r.dataset.path || "").toLowerCase())) markRowAdded(r);
+      else r.classList.add("failed");   // 失败行标红，让用户一眼看到哪些没进去
+    });
+    updateInstSel();
+    await refresh();
+
+    const okN = (res && res.added) || 0;
+    const bad = (res && res.failed) || [];
+    if (bad.length) {
+      const head = bad.slice(0, 3).map(f => f.name + "（" + f.why + "）").join("、");
+      toast("已添加 " + okN + " 个，失败 " + bad.length + " 个：" + head + (bad.length > 3 ? " 等" : ""), true);
+    } else if (okN) {
+      toast("＋ 已添加 " + okN + " 个应用");
+    } else {
+      toast("未能添加", true);
+    }
+  } catch (e) {
+    toast("批量添加失败：" + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = "＋ 添加选中";
+  }
+};
+
+/* ==========================================================================
+   初始化
+   ========================================================================== */
+async function refresh() {
+  const d = await API.state();
+  state = { apps: d.apps || [], settings: Object.assign({ iconSize:64, cols:6, theme:"dark" }, d.settings || {}) };
+  renderAll();
+  return d;
+}
+
+/* ---------- 连接状态指示 ----------
+   绿点 = 已连接宿主（**不显示文字**，正常态界面保持干净）
+   红点 = 未连接宿主（显示文字提示，只有异常态才出文字）
+   状态与颜色/文字都由 setConn 一处驱动，避免各改一处走岔 */
+let pingFails = 0;
+function setConn(state, title) {
+  const b = $("modeBadge");
+  if (!b) return;
+  b.dataset.state = state;
+  b.title = title || "";
+  const t = b.querySelector(".badge-txt");
+  if (t) t.textContent = (state === "offline") ? "未连接宿主" : "";
+}
+function connOk() { pingFails = 0; setConn("online", "已连接宿主"); }
+function connFail() {
+  pingFails++;
+  if (pingFails < 2) return;          // 偶发一次失败不闪红（避免网络/GC 抖动造成误报）
+  setConn("offline", "未连接宿主（宿主已退出或无法访问）");
+  markHostDead();                     // 心跳确认宿主死亡 → 窗口三键立即降级（关闭键改走浏览器）
+}
+
+async function init() {
+  try {
+    const d = await refresh();
+    if (HOSTED) {
+      document.body.classList.add("hosted");      // 显示窗口控制按钮（演示模式下隐藏）
+      connOk();                                   // 绿点，正常态不出文字
+      $("drawerSub").textContent = "Nova Launcher · V1.0 · " + (d.dataDir || "");
+      setInterval(() => API.ping(), 3000);          // 心跳：窗口关闭后宿主自动退出
+    } else {
+      setConn("offline", "未连接宿主（演示模式：直接打开的 HTML，请用 NovaLauncher.bat 启动）");
+      $("drawerSub").textContent = "演示模式 · 未连接宿主（请用 NovaLauncher.bat 启动）";
+    }
+  } catch (e) {
+    setConn("offline", "未连接宿主：" + e.message);
+    toast("无法连接宿主：" + e.message, true);
+  }
+}
+
+init();
+</script>
+</body>
+</html>
