@@ -339,6 +339,55 @@
     width:16px; height:16px; border-radius:50%; background:var(--accent); cursor:pointer;
     box-shadow:0 2px 6px rgba(0,0,0,.3); }
   .range-wrap span{ font-size:12px; color:var(--text-3); min-width:28px; text-align:right; }
+
+  /* ---------- 新增控件样式 ---------- */
+  .input-row{ display:flex; align-items:center; gap:8px; }
+  .input-row input[type=text]{ flex:1; padding:8px 10px; border-radius:8px; border:1px solid var(--stroke);
+    background:var(--glass); color:var(--text-1); font-size:13px; outline:none; }
+  .input-row input[type=text]:focus{ border-color:var(--accent); }
+  .input-row input[type=color]{ width:36px; height:32px; border:none; border-radius:6px; cursor:pointer;
+    background:transparent; padding:0; }
+  .btn-sm{ padding:6px 12px; font-size:12px; }
+
+  /* ---------- 液态玻璃样式 ---------- */
+  html[data-bgstyle="liquid"] .app-bg{
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 10%, rgba(108,99,255,0.25), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,200,255,0.18), transparent 55%),
+      radial-gradient(ellipse 70% 60% at 50% 90%, rgba(255,100,200,0.15), transparent 60%),
+      linear-gradient(135deg, rgba(30,30,50,0.85), rgba(15,15,30,0.9));
+    backdrop-filter: blur(40px) saturate(1.8);
+    -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  }
+  html[data-bgstyle="liquid"] .app-bg::before{
+    content:""; position:absolute; inset:0;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(255,255,255,0.08) 0%, transparent 40%),
+      radial-gradient(circle at 70% 80%, rgba(255,255,255,0.05) 0%, transparent 35%);
+    pointer-events:none;
+  }
+  html[data-bgstyle="liquid"] .icon-card{
+    background: rgba(255,255,255,0.06);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.15);
+  }
+  html[data-bgstyle="liquid"] .icon-card:hover{
+    background: rgba(255,255,255,0.12);
+    border-color: rgba(255,255,255,0.25);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.25);
+  }
+
+  /* ---------- 背景图片 ---------- */
+  #bgImageLayer{ position:absolute; inset:0; z-index:0; background-size:cover; background-position:center;
+    background-repeat:no-repeat; opacity:0; transition:opacity var(--anim-medium) var(--ease); }
+  #bgImageLayer.on{ opacity:1; }
+
+  /* ---------- 图标字体 ---------- */
+  .tile .label{ font-family: var(--icon-font, system-ui, sans-serif);
+    font-size: var(--icon-font-size, 12px);
+    color: var(--icon-font-color, #ececf1);
+    font-weight: var(--icon-font-weight, 600); }
   .row .mini{ width:30px; height:30px; border-radius:8px; display:grid; place-items:center; flex:0 0 auto;
     overflow:hidden; }
   .row .mini img{ width:100%; height:100%; object-fit:contain; }
@@ -506,7 +555,7 @@
 </head>
 <body data-page-node-id="1QQnfMEknKu9NII3cumZvu">
 
-<div class="backdrop" data-page-node-id="1lIUsXK3GOUNLDaOsF8Fc4"><div class="g3" data-page-node-id="y532mMRiUyujjptOQJ5GpN"></div><div class="noise" data-page-node-id="JgBdhIV0clacJqycRPKx9s"></div></div>
+<div class="backdrop" data-page-node-id="1lIUsXK3GOUNLDaOsF8Fc4"><div class="g3" data-page-node-id="y532mMRiUyujjptOQJ5GpN"></div><div class="noise" data-page-node-id="JgBdhIV0clacJqycRPKx9s"></div><div id="bgImageLayer"></div></div>
 
 <div class="window" data-page-node-id="qO004CIPfCbHQNBiEGegeq">
   <header class="titlebar" data-page-node-id="F6SPZ7y6b1Svbiwj4ktc0B">
@@ -544,47 +593,118 @@
   <h2 data-page-node-id="veu3j4iuF1V7ZNdv9pgpvH">设置</h2>
   <div class="sub" id="drawerSub" data-page-node-id="jmxQMJdfVJSnH7Gw1bUid5">Nova Launcher · V1.0</div>
 
-  <div class="sec" data-page-node-id="njm45ds1BbPk2AIOHT2UJi">
-    <h3 data-page-node-id="WY2Zz2B5DcoUsIy7zmzPuy">外观</h3>
-    <div class="field" data-page-node-id="7HzGmOXFXtTp6R8QLZy3wO">
-      <label data-page-node-id="YYw6mwE1kCq5YiHXhRC7r4">图标大小 <b data-page-node-id="HvGw2dC9ne8ZiDokCSl3lS"><span id="sizeVal" data-page-node-id="mNr1LhRLH8XDC2sFUq2UHH">64</span> px</b></label>
-      <input type="range" id="sizeRange" min="36" max="160" step="4" value="64" data-page-node-id="cIVEEhpcKpQNQNlYMvufYK">
-    </div>
-    <div class="field" data-page-node-id="NyC3VchPCSSYcrRFPEaKxm">
-      <label data-page-node-id="gQIN9dUSIYQEJTp4A95S3S">每行图标数</label>
-      <select id="colsSel" data-page-node-id="THViqlq6LRx5JFQSMPxiBt">
-        <option value="4" data-page-node-id="HswF6365KwnPHrE2GqG86u">4</option>
-        <option value="5" data-page-node-id="rNKFwuW71mrqoPpPJPw5hk">5</option>
-        <option value="6" data-page-node-id="nWc0gpWG6Pt0ojWAx2srgR">6</option>
-        <option value="7" data-page-node-id="06fQMxnfs6HqldnlGJQHwv">7</option>
-        <option value="8" data-page-node-id="tcYJjC1uVKWwQzVQYkkJWl">8</option>
-        <option value="9" data-page-node-id="Nl9Y9aZJtqfWuxY6LkRwaE">9</option>
-        <option value="10" data-page-node-id="ONPvDtHT1K9UNcrHElaKQu">10</option>
-        <option value="11" data-page-node-id="SZb4LsWh4BBt25HOy0DnJc">11</option>
-        <option value="12" data-page-node-id="dcqoX7UkbhBElcgvXgSLEz">12</option>
-      </select>
-    </div>
-    <div class="field" data-page-node-id="J4JuhOCI2q3k85HmgUYx5f">
-      <label data-page-node-id="xDvLlbMhfAaDy7YklDiIeZ">主题</label>
-      <div class="seg" id="themeSeg" data-page-node-id="Imt97jiSC9acHAPqDYkAPh">
-        <button data-t="dark" class="on" data-page-node-id="Jexr2XtUhWkFgsKFIwvR4i">深色</button>
-        <button data-t="light" data-page-node-id="ShSYLCJqeoGJpHDzIrdXhn">浅色</button>
+  <div class="sec" id="appearanceSec">
+    <h3>外观</h3>
+
+    <div class="field">
+      <label>主题</label>
+      <div class="seg" id="themeSeg">
+        <button data-t="dark" class="on">深色</button>
+        <button data-t="light">浅色</button>
       </div>
     </div>
 
-    <div class="row" data-page-node-id="glassRow1">
-      <label data-page-node-id="glassLbl">毛玻璃效果</label>
-      <label class="switch" data-page-node-id="glassSwitchLbl">
-        <input type="checkbox" id="glassEnabled" data-page-node-id="glassChk">
-        <span class="slider" data-page-node-id="glassSlider"></span>
+    <div class="field">
+      <label>背景样式</label>
+      <div class="seg" id="styleSeg">
+        <button data-s="mica" class="on">毛玻璃</button>
+        <button data-s="liquid">液态玻璃</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <label>启用背景效果</label>
+      <label class="switch">
+        <input type="checkbox" id="glassEnabled">
+        <span class="slider"></span>
       </label>
     </div>
 
-    <div class="row" id="glassIntensityRow" data-page-node-id="glassRow2">
-      <label data-page-node-id="glassIntLbl">毛玻璃强度</label>
-      <div class="range-wrap" data-page-node-id="glassRangeWrap">
-        <input type="range" id="glassIntensity" min="0" max="100" value="50" data-page-node-id="glassRange">
-        <span id="glassIntVal" data-page-node-id="glassIntVal">50</span>
+    <div class="field" id="styleIntensityField">
+      <label>效果强度 <b><span id="styleIntVal">50</span></b></label>
+      <input type="range" id="styleIntensity" min="0" max="100" value="50">
+    </div>
+
+    <div class="field">
+      <label>窗体透明度 <b><span id="opacityVal">100</span>%</b></label>
+      <input type="range" id="windowOpacity" min="20" max="100" value="100">
+    </div>
+
+    <div class="field">
+      <label>图标大小 <b><span id="sizeVal">64</span> px</b></label>
+      <input type="range" id="sizeRange" min="36" max="160" step="4" value="64">
+    </div>
+
+    <div class="field">
+      <label>每行图标数</label>
+      <select id="colsSel">
+        <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+        <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+        <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="sec" id="bgSec">
+    <h3>背景图片</h3>
+    <div class="field">
+      <label>图片路径</label>
+      <div class="input-row">
+        <input type="text" id="bgImagePath" placeholder="选择图片文件...">
+        <button class="btn-ghost btn-sm" id="bgBrowseBtn">浏览</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>填充方式</label>
+      <div class="seg" id="bgModeSeg">
+        <button data-m="cover" class="on">自适应</button>
+        <button data-m="contain">适应高度</button>
+        <button data-m="100% auto">适应宽度</button>
+        <button data-m="repeat">平铺</button>
+        <button data-m="100% 100%">拉伸</button>
+      </div>
+    </div>
+    <div class="row">
+      <label>启用背景图片</label>
+      <label class="switch">
+        <input type="checkbox" id="bgImageEnabled">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="sec" id="fontSec">
+    <h3>图标字体</h3>
+    <div class="field">
+      <label>字体</label>
+      <select id="iconFontFamily">
+        <option value="system">系统默认</option>
+        <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
+        <option value="'SimSun', serif">宋体</option>
+        <option value="'KaiTi', serif">楷体</option>
+        <option value="'SimHei', sans-serif">黑体</option>
+        <option value="'Segoe UI', sans-serif">Segoe UI</option>
+        <option value="Consolas, monospace">Consolas</option>
+        <option value="'Courier New', monospace">Courier New</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>字体大小 <b><span id="iconFontSizeVal">12</span> px</b></label>
+      <input type="range" id="iconFontSize" min="10" max="24" value="12">
+    </div>
+    <div class="field">
+      <label>字体颜色</label>
+      <div class="input-row">
+        <input type="color" id="iconFontColor" value="#ececf1">
+        <input type="text" id="iconFontColorText" value="#ececf1" style="flex:1">
+      </div>
+    </div>
+    <div class="field">
+      <label>字体粗细</label>
+      <div class="seg" id="iconWeightSeg">
+        <button data-w="400">常规</button>
+        <button data-w="600" class="on">中等</button>
+        <button data-w="700">粗体</button>
       </div>
     </div>
   </div>
@@ -643,7 +763,7 @@
 const HOSTED = !!(window.chrome && window.chrome.webview);
 const $ = id => document.getElementById(id);
 
-let state = { apps: [], settings: { iconSize: 64, cols: 6, theme: "dark", glassEnabled: true, glassIntensity: 50 } };
+let state = { apps: [], settings: { iconSize: 64, cols: 6, theme: "dark", glassEnabled: true, glassIntensity: 50, bgStyle: "mica", windowOpacity: 100, bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover", iconFontFamily: "system", iconFontSize: 12, iconFontColor: "#ececf1", iconFontWeight: 600 } };
 
 /* ==========================================================================
    演示模式数据（直接双击打开 HTML 时使用，不执行任何启动动作）
@@ -705,7 +825,7 @@ const API = {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(LSKEY) || "null"); } catch (e) {}
     const apps  = (saved && saved.apps) || DEMO.slice(0, 6).map(a => Object.assign({}, a));
-    const sets  = (saved && saved.settings) || { iconSize:64, cols:6, theme:"dark", glassEnabled:true, glassIntensity:50 };
+    const sets  = (saved && saved.settings) || { iconSize:64, cols:6, theme:"dark", glassEnabled:true, glassIntensity:50, bgStyle:"mica", windowOpacity:100, bgImageEnabled:false, bgImagePath:"", bgImageMode:"cover", iconFontFamily:"system", iconFontSize:12, iconFontColor:"#ececf1", iconFontWeight:600 };
     return { apps, settings: sets, demo: true };
   },
 
@@ -724,6 +844,7 @@ const API = {
 
   async launch(i)            { return HOSTED ? novaSend("launch", { i }) : { ok:true, msg:"演示模式：不会真的启动程序" }; },
   async pick()               { return HOSTED ? novaSend("pick")        : demoAdd(); },
+  async pickImage()          { return HOSTED ? novaSend("pickImage")   : { ok: false, cancelled: true }; },
   async remove(i)            { return HOSTED ? novaSend("remove", { i }) : demoRemove(i); },
   async rename(i, p, name)   { return HOSTED ? novaSend("rename", { i, p, n: name }) : demoRename(i, name); },
   async move(from, to)       { return HOSTED ? novaSend("move", { from, to }) : demoMove(from, to); },
@@ -768,6 +889,17 @@ function demoSetting(k, v) {
   if (k === "iconSize") state.settings.iconSize = Math.max(36, Math.min(160, +v));
   if (k === "cols")     state.settings.cols     = Math.max(3,  Math.min(10,  +v));
   if (k === "theme")    state.settings.theme    = v;
+  if (k === "glassEnabled") state.settings.glassEnabled = (v === true || v === "true");
+  if (k === "glassIntensity") state.settings.glassIntensity = Math.max(0, Math.min(100, +v));
+  if (k === "bgStyle") state.settings.bgStyle = v;
+  if (k === "windowOpacity") state.settings.windowOpacity = Math.max(20, Math.min(100, +v));
+  if (k === "bgImageEnabled") state.settings.bgImageEnabled = (v === true || v === "true");
+  if (k === "bgImagePath") state.settings.bgImagePath = v;
+  if (k === "bgImageMode") state.settings.bgImageMode = v;
+  if (k === "iconFontFamily") state.settings.iconFontFamily = v;
+  if (k === "iconFontSize") state.settings.iconFontSize = Math.max(10, Math.min(24, +v));
+  if (k === "iconFontColor") state.settings.iconFontColor = v;
+  if (k === "iconFontWeight") state.settings.iconFontWeight = +v;
   demoPersist();
   return { ok:true };
 }
@@ -907,17 +1039,23 @@ function fallbackMini(app) {
   return g;
 }
 
-function applyGlass() {
+function applyStyle() {
   const s = state.settings;
   const enabled = s.glassEnabled !== false;
   const intensity = Math.max(0, Math.min(100, s.glassIntensity ?? 50));
+  const bgStyle = s.bgStyle || "mica";
   const root = document.documentElement;
+  root.dataset.bgstyle = bgStyle;
   if (enabled) {
-    // 强度越高，背景越透明（透出更多 Mica），blur 越强
-    const alpha = 0.78 - (intensity / 100) * 0.55;  // 0.78(弱) -> 0.23(强)
-    const blur = (intensity / 100) * 24;            // 0 -> 24px
-    root.style.setProperty("--bg-base", `rgba(16,16,20,${alpha.toFixed(3)})`);
-    root.style.setProperty("--panel", `rgba(26,26,32,${(alpha + 0.06).toFixed(3)})`);
+    const alpha = 0.78 - (intensity / 100) * 0.55;
+    const blur = (intensity / 100) * 24;
+    if (bgStyle === "liquid") {
+      root.style.setProperty("--bg-base", `rgba(20,20,40,${(alpha * 0.7).toFixed(3)})`);
+      root.style.setProperty("--panel", `rgba(30,30,55,${(alpha * 0.6 + 0.05).toFixed(3)})`);
+    } else {
+      root.style.setProperty("--bg-base", `rgba(16,16,20,${alpha.toFixed(3)})`);
+      root.style.setProperty("--panel", `rgba(26,26,32,${(alpha + 0.06).toFixed(3)})`);
+    }
     root.style.setProperty("--glass-blur", `${blur.toFixed(1)}px`);
     root.classList.add("glass-on");
     root.classList.remove("glass-off");
@@ -931,13 +1069,64 @@ function applyGlass() {
   // 同步控件
   const chk = $("glassEnabled");
   if (chk) chk.checked = enabled;
-  const range = $("glassIntensity");
+  const range = $("styleIntensity");
   if (range) range.value = intensity;
-  const val = $("glassIntVal");
+  const val = $("styleIntVal");
   if (val) val.textContent = intensity;
-  const row = $("glassIntensityRow");
-  if (row) row.style.opacity = enabled ? "1" : "0.4";
-  if (row) row.style.pointerEvents = enabled ? "auto" : "none";
+  const field = $("styleIntensityField");
+  if (field) { field.style.opacity = enabled ? "1" : "0.4"; field.style.pointerEvents = enabled ? "auto" : "none"; }
+  // 样式选择
+  document.querySelectorAll("#styleSeg button").forEach(b => b.classList.toggle("on", b.dataset.s === bgStyle));
+}
+
+function applyWindowOpacity() {
+  const s = state.settings;
+  const opacity = Math.max(20, Math.min(100, s.windowOpacity ?? 100));
+  document.querySelector(".window").style.opacity = (opacity / 100).toFixed(2);
+  const range = $("windowOpacity");
+  if (range) range.value = opacity;
+  const val = $("opacityVal");
+  if (val) val.textContent = opacity;
+}
+
+function applyBgImage() {
+  const s = state.settings;
+  const layer = $("bgImageLayer");
+  if (!layer) return;
+  if (s.bgImageEnabled && s.bgImagePath) {
+    layer.style.backgroundImage = `url("file:///${s.bgImagePath.replace(/\\/g, "/")}")`;
+    layer.style.backgroundSize = s.bgImageMode || "cover";
+    if (s.bgImageMode === "repeat") { layer.style.backgroundRepeat = "repeat"; }
+    else { layer.style.backgroundRepeat = "no-repeat"; }
+    layer.classList.add("on");
+  } else {
+    layer.classList.remove("on");
+  }
+  const chk = $("bgImageEnabled");
+  if (chk) chk.checked = !!s.bgImageEnabled;
+  const pathInput = $("bgImagePath");
+  if (pathInput) pathInput.value = s.bgImagePath || "";
+  document.querySelectorAll("#bgModeSeg button").forEach(b => b.classList.toggle("on", b.dataset.m === (s.bgImageMode || "cover")));
+}
+
+function applyIconFont() {
+  const s = state.settings;
+  const root = document.documentElement;
+  root.style.setProperty("--icon-font", s.iconFontFamily === "system" ? "system-ui, sans-serif" : s.iconFontFamily);
+  root.style.setProperty("--icon-font-size", (s.iconFontSize || 12) + "px");
+  root.style.setProperty("--icon-font-color", s.iconFontColor || "#ececf1");
+  root.style.setProperty("--icon-font-weight", s.iconFontWeight || 600);
+  const ff = $("iconFontFamily");
+  if (ff) ff.value = s.iconFontFamily || "system";
+  const fs = $("iconFontSize");
+  if (fs) fs.value = s.iconFontSize || 12;
+  const fsv = $("iconFontSizeVal");
+  if (fsv) fsv.textContent = s.iconFontSize || 12;
+  const fc = $("iconFontColor");
+  if (fc) fc.value = s.iconFontColor || "#ececf1";
+  const fct = $("iconFontColorText");
+  if (fct) fct.value = s.iconFontColor || "#ececf1";
+  document.querySelectorAll("#iconWeightSeg button").forEach(b => b.classList.toggle("on", b.dataset.w == (s.iconFontWeight || 600)));
 }
 
 function renderSettings() {
@@ -949,7 +1138,10 @@ function renderSettings() {
   document.documentElement.style.setProperty("--cols", s.cols);
   document.documentElement.dataset.theme = s.theme;
   document.querySelectorAll("#themeSeg button").forEach(b => b.classList.toggle("on", b.dataset.t === s.theme));
-  applyGlass();
+  applyStyle();
+  applyWindowOpacity();
+  applyBgImage();
+  applyIconFont();
 }
 
 function renderAll() { renderGrid(); renderList(); renderSettings(); }
@@ -1475,18 +1667,107 @@ $("themeSeg").onclick = e => {
 
 $("glassEnabled").onchange = e => {
   state.settings.glassEnabled = e.target.checked;
-  applyGlass();
+  applyStyle();
   API.setting("glassEnabled", e.target.checked).catch(() => {});
 };
 
-let glassTimer = null;
-$("glassIntensity").oninput = e => {
+let styleTimer = null;
+$("styleIntensity").oninput = e => {
   const v = +e.target.value;
   state.settings.glassIntensity = v;
-  $("glassIntVal").textContent = v;
-  applyGlass();
-  clearTimeout(glassTimer);
-  glassTimer = setTimeout(() => API.setting("glassIntensity", v).catch(() => {}), 200);
+  $("styleIntVal").textContent = v;
+  applyStyle();
+  clearTimeout(styleTimer);
+  styleTimer = setTimeout(() => API.setting("glassIntensity", v).catch(() => {}), 200);
+};
+
+$("styleSeg").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.settings.bgStyle = b.dataset.s;
+  applyStyle();
+  API.setting("bgStyle", b.dataset.s).catch(() => {});
+};
+
+let opacityTimer = null;
+$("windowOpacity").oninput = e => {
+  const v = +e.target.value;
+  state.settings.windowOpacity = v;
+  $("opacityVal").textContent = v;
+  applyWindowOpacity();
+  clearTimeout(opacityTimer);
+  opacityTimer = setTimeout(() => API.setting("windowOpacity", v).catch(() => {}), 200);
+};
+
+$("bgImageEnabled").onchange = e => {
+  state.settings.bgImageEnabled = e.target.checked;
+  applyBgImage();
+  API.setting("bgImageEnabled", e.target.checked).catch(() => {});
+};
+
+$("bgImagePath").onchange = e => {
+  state.settings.bgImagePath = e.target.value;
+  applyBgImage();
+  API.setting("bgImagePath", e.target.value).catch(() => {});
+};
+
+$("bgBrowseBtn").onclick = async () => {
+  try {
+    const r = await API.pickImage();
+    if (r && r.ok && r.path) {
+      state.settings.bgImagePath = r.path;
+      state.settings.bgImageEnabled = true;
+      applyBgImage();
+      API.setting("bgImagePath", r.path).catch(() => {});
+      API.setting("bgImageEnabled", true).catch(() => {});
+    }
+  } catch (e) {}
+};
+
+$("bgModeSeg").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.settings.bgImageMode = b.dataset.m;
+  applyBgImage();
+  API.setting("bgImageMode", b.dataset.m).catch(() => {});
+};
+
+$("iconFontFamily").onchange = e => {
+  state.settings.iconFontFamily = e.target.value;
+  applyIconFont();
+  API.setting("iconFontFamily", e.target.value).catch(() => {});
+};
+
+let iconFontTimer = null;
+$("iconFontSize").oninput = e => {
+  const v = +e.target.value;
+  state.settings.iconFontSize = v;
+  $("iconFontSizeVal").textContent = v;
+  applyIconFont();
+  clearTimeout(iconFontTimer);
+  iconFontTimer = setTimeout(() => API.setting("iconFontSize", v).catch(() => {}), 200);
+};
+
+$("iconFontColor").oninput = e => {
+  state.settings.iconFontColor = e.target.value;
+  $("iconFontColorText").value = e.target.value;
+  applyIconFont();
+  API.setting("iconFontColor", e.target.value).catch(() => {});
+};
+
+$("iconFontColorText").onchange = e => {
+  const v = e.target.value;
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+    state.settings.iconFontColor = v;
+    $("iconFontColor").value = v;
+    applyIconFont();
+    API.setting("iconFontColor", v).catch(() => {});
+  }
+};
+
+$("iconWeightSeg").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return;
+  state.settings.iconFontWeight = +b.dataset.w;
+  applyIconFont();
+  API.setting("iconFontWeight", +b.dataset.w).catch(() => {});
 };
 
 $("addApp").onclick = async () => {

@@ -1,10 +1,19 @@
 ﻿{
-    "iconSize":  100,
-    "cols":  10,
+    "iconSize":  64,
+    "cols":  6,
     "theme":  "dark",
     "win":  {
                 "state":  "windowed"
             },
     "glassEnabled":  true,
-    "glassIntensity":  50
+    "glassIntensity":  50,
+    "bgStyle":  "mica",
+    "windowOpacity":  100,
+    "bgImageEnabled":  false,
+    "bgImagePath":  "",
+    "bgImageMode":  "cover",
+    "iconFontFamily":  "system",
+    "iconFontSize":  12,
+    "iconFontColor":  "#ececf1",
+    "iconFontWeight":  600
 }

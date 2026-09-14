@@ -308,7 +308,7 @@ function Save-Apps($apps) {
 
 function Get-Settings {
     $s = Read-Json $SetFile $null
-    $r = [pscustomobject]@{ iconSize = 64; cols = 6; theme = 'dark'; win = $null; glassEnabled = $true; glassIntensity = 50 }
+    $r = [pscustomobject]@{ iconSize = 64; cols = 6; theme = 'dark'; win = $null; glassEnabled = $true; glassIntensity = 50; bgStyle = 'mica'; windowOpacity = 100; bgImageEnabled = $false; bgImagePath = ''; bgImageMode = 'cover'; iconFontFamily = 'system'; iconFontSize = 12; iconFontColor = '#ececf1'; iconFontWeight = 600 }
     if ($s) {
         if ($s.PSObject.Properties['iconSize'])      { $r.iconSize      = [int]$s.iconSize }
         if ($s.PSObject.Properties['cols'])          { $r.cols          = [int]$s.cols }
@@ -316,6 +316,15 @@ function Get-Settings {
         if ($s.PSObject.Properties['win'])           { $r.win           = $s.win }
         if ($s.PSObject.Properties['glassEnabled'])  { $r.glassEnabled  = [bool]$s.glassEnabled }
         if ($s.PSObject.Properties['glassIntensity']){ $r.glassIntensity= [int]$s.glassIntensity }
+        if ($s.PSObject.Properties['bgStyle'])       { $r.bgStyle       = [string]$s.bgStyle }
+        if ($s.PSObject.Properties['windowOpacity']) { $r.windowOpacity = [int]$s.windowOpacity }
+        if ($s.PSObject.Properties['bgImageEnabled']){ $r.bgImageEnabled= [bool]$s.bgImageEnabled }
+        if ($s.PSObject.Properties['bgImagePath'])   { $r.bgImagePath   = [string]$s.bgImagePath }
+        if ($s.PSObject.Properties['bgImageMode'])   { $r.bgImageMode   = [string]$s.bgImageMode }
+        if ($s.PSObject.Properties['iconFontFamily']){ $r.iconFontFamily= [string]$s.iconFontFamily }
+        if ($s.PSObject.Properties['iconFontSize'])  { $r.iconFontSize  = [int]$s.iconFontSize }
+        if ($s.PSObject.Properties['iconFontColor']) { $r.iconFontColor = [string]$s.iconFontColor }
+        if ($s.PSObject.Properties['iconFontWeight']){ $r.iconFontWeight= [int]$s.iconFontWeight }
     }
     return $r
 }
@@ -1012,6 +1021,17 @@ function Invoke-NovaApi([string]$op, $data) {
             }
             return [pscustomobject]@{ ok = ($added.Count -gt 0); added = @($added); failed = @($failed); msg = ("已添加 " + ($added -join '、')) }
         }
+        'pickImage' {
+            Add-Type -AssemblyName System.Windows.Forms
+            $dlg = New-Object System.Windows.Forms.OpenFileDialog
+            $dlg.Filter = '图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp|所有文件|*.*'
+            $dlg.Title = '选择背景图片'
+            $dlg.Multiselect = $false
+            if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+                return [pscustomobject]@{ ok = $true; path = $dlg.FileName }
+            }
+            return [pscustomobject]@{ ok = $false; cancelled = $true }
+        }
         'add' {
             $dropP = [string]$data.p; $dropN = [string]$data.n
             $rp = Resolve-AppRef $dropP $dropN
@@ -1096,6 +1116,15 @@ function Invoke-NovaApi([string]$op, $data) {
                     if ($s.glassEnabled) { Enable-NovaGlass $form.Handle } else { Disable-NovaGlass $form.Handle }
                 }
                 'glassIntensity' { $n = 50; if ([int]::TryParse($v, [ref]$n)) { $s.glassIntensity = [Math]::Max(0, [Math]::Min(100, $n)) } }
+                'bgStyle' { if ($v -eq 'mica' -or $v -eq 'liquid') { $s.bgStyle = $v } }
+                'windowOpacity' { $n = 100; if ([int]::TryParse($v, [ref]$n)) { $s.windowOpacity = [Math]::Max(20, [Math]::Min(100, $n)) } }
+                'bgImageEnabled' { $s.bgImageEnabled = ($v -eq 'true' -or $v -eq 'True') }
+                'bgImagePath' { $s.bgImagePath = $v }
+                'bgImageMode' { if ($v -in @('cover','contain','100% auto','repeat','100% 100%')) { $s.bgImageMode = $v } }
+                'iconFontFamily' { $s.iconFontFamily = $v }
+                'iconFontSize' { $n = 12; if ([int]::TryParse($v, [ref]$n)) { $s.iconFontSize = [Math]::Max(10, [Math]::Min(24, $n)) } }
+                'iconFontColor' { $s.iconFontColor = $v }
+                'iconFontWeight' { $n = 600; if ([int]::TryParse($v, [ref]$n)) { $s.iconFontWeight = $n } }
             }
             Save-Settings $s
             return [pscustomobject]@{ ok = $true; settings = $s }
