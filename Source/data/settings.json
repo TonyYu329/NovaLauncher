@@ -13,5 +13,6 @@
     "iconFontFamily":  "system",
     "iconFontSize":  14,
     "iconFontColor":  "#ffffff",
-    "iconFontWeight":  600
+    "iconFontWeight":  600,
+    "bgBlur":  0
 }

@@ -676,6 +676,11 @@
     </div>
 
     <div class="field">
+      <label>背景模糊 <b><span id="blurVal">0</span>%</b></label>
+      <input type="range" id="bgBlur" min="0" max="100" value="0">
+    </div>
+
+    <div class="field">
       <label>图标大小 <b><span id="sizeVal">64</span> px</b></label>
       <input type="range" id="sizeRange" min="36" max="160" step="4" value="64">
     </div>
@@ -809,7 +814,7 @@
 const HOSTED = !!(window.chrome && window.chrome.webview);
 const $ = id => document.getElementById(id);
 
-let state = { apps: [], settings: { iconSize: 100, cols: 10, theme: "dark", glassEnabled: false, glassIntensity: 50, bgStyle: "liquid", windowOpacity: 100, bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover", iconFontFamily: "system", iconFontSize: 14, iconFontColor: "#ffffff", iconFontWeight: 600 } };
+let state = { apps: [], settings: { iconSize: 100, cols: 10, theme: "dark", glassEnabled: false, glassIntensity: 50, bgStyle: "liquid", windowOpacity: 100, bgBlur: 0, bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover", iconFontFamily: "system", iconFontSize: 14, iconFontColor: "#ffffff", iconFontWeight: 600 } };
 
 /* ==========================================================================
    演示模式数据（直接双击打开 HTML 时使用，不执行任何启动动作）
@@ -871,7 +876,7 @@ const API = {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(LSKEY) || "null"); } catch (e) {}
     const apps  = (saved && saved.apps) || DEMO.slice(0, 6).map(a => Object.assign({}, a));
-    const sets  = (saved && saved.settings) || { iconSize:100, cols:10, theme:"dark", glassEnabled:false, glassIntensity:50, bgStyle:"liquid", windowOpacity:100, bgImageEnabled:false, bgImagePath:"", bgImageMode:"cover", iconFontFamily:"system", iconFontSize:14, iconFontColor:"#ffffff", iconFontWeight:600 };
+    const sets  = (saved && saved.settings) || { iconSize:100, cols:10, theme:"dark", glassEnabled:false, glassIntensity:50, bgStyle:"liquid", windowOpacity:100, bgBlur:0, bgImageEnabled:false, bgImagePath:"", bgImageMode:"cover", iconFontFamily:"system", iconFontSize:14, iconFontColor:"#ffffff", iconFontWeight:600 };
     return { apps, settings: sets, demo: true };
   },
 
@@ -939,6 +944,7 @@ function demoSetting(k, v) {
   if (k === "glassIntensity") state.settings.glassIntensity = Math.max(0, Math.min(100, +v));
   if (k === "bgStyle") state.settings.bgStyle = v;
   if (k === "windowOpacity") state.settings.windowOpacity = Math.max(20, Math.min(100, +v));
+  if (k === "bgBlur") state.settings.bgBlur = Math.max(0, Math.min(100, +v));
   if (k === "bgImageEnabled") state.settings.bgImageEnabled = (v === true || v === "true");
   if (k === "bgImagePath") state.settings.bgImagePath = v;
   if (k === "bgImageMode") state.settings.bgImageMode = v;
@@ -1094,6 +1100,9 @@ function applyStyle() {
   const winOpacity = Math.max(20, Math.min(100, s.windowOpacity ?? 100)) / 100;
   const root = document.documentElement;
   root.dataset.bgstyle = enabled ? bgStyle : "none";
+  // 背景模糊：0-100 映射到 0-30px，仅在背景透明时有效
+  const bgBlur = Math.max(0, Math.min(100, s.bgBlur ?? 0));
+  root.style.setProperty("--bg-blur", `${(bgBlur / 100 * 30).toFixed(1)}px`);
   if (enabled) {
     const alpha = (0.78 - (intensity / 100) * 0.55) * winOpacity;
     const blur = (intensity / 100) * 24;
@@ -1140,6 +1149,11 @@ function applyStyle() {
   if (field) { field.style.opacity = enabled ? "1" : "0.4"; field.style.pointerEvents = enabled ? "auto" : "none"; }
   // 样式选择
   document.querySelectorAll("#styleSeg button").forEach(b => b.classList.toggle("on", b.dataset.s === bgStyle));
+  // 背景模糊滑块同步
+  const blurRange = $("bgBlur");
+  if (blurRange) blurRange.value = bgBlur;
+  const blurVal = $("blurVal");
+  if (blurVal) blurVal.textContent = bgBlur;
 }
 
 function applyWindowOpacity() {
@@ -1775,6 +1789,16 @@ $("windowOpacity").oninput = e => {
   opacityTimer = setTimeout(() => API.setting("windowOpacity", v).catch(() => {}), 200);
 };
 
+let blurTimer = null;
+$("bgBlur").oninput = e => {
+  const v = +e.target.value;
+  state.settings.bgBlur = v;
+  $("blurVal").textContent = v;
+  applyStyle();
+  clearTimeout(blurTimer);
+  blurTimer = setTimeout(() => API.setting("bgBlur", v).catch(() => {}), 200);
+};
+
 $("bgImageEnabled").onchange = e => {
   state.settings.bgImageEnabled = e.target.checked;
   applyBgImage();
@@ -1863,7 +1887,7 @@ $("quitHost").onclick   = () => API.quit().then(() => toast("正在退出…")).
 const DEFAULT_SETTINGS = {
   iconSize: 100, cols: 10, theme: "dark",
   glassEnabled: false, glassIntensity: 50, bgStyle: "liquid",
-  windowOpacity: 100,
+  windowOpacity: 100, bgBlur: 0,
   bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover",
   iconFontFamily: "system", iconFontSize: 14, iconFontColor: "#ffffff", iconFontWeight: 600
 };

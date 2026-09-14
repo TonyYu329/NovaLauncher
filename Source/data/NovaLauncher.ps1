@@ -241,17 +241,25 @@ function Disable-NovaGlass([IntPtr]$hwnd) {
 
 # 根据 glassEnabled 和 windowOpacity 设置 DWM 背景
 # windowOpacity < 100 时，即使禁用毛玻璃也保持透明框架，让桌面透出来
-function Set-NovaDwmBackground([IntPtr]$hwnd, [bool]$glassEnabled, [int]$windowOpacity) {
+function Set-NovaDwmBackground([IntPtr]$hwnd, [bool]$glassEnabled, [int]$windowOpacity, [int]$bgBlur = 0) {
     if ($windowOpacity -lt 100) {
-        # 背景透明度<100%时，无论是否启用毛玻璃，都使用纯透明框架让桌面透出
-        # 毛玻璃/液态玻璃的视觉效果由 WebView2 CSS 层提供
+        # 背景透明度<100%时，使用透明框架让桌面透出
         $m = New-Object DwmGlass+MARGINS
         $m.L = -1; $m.T = -1; $m.R = -1; $m.B = -1
         [DwmGlass]::DwmExtendFrameIntoClientArea($hwnd, [ref]$m) | Out-Null
-        $val = 1  # DWMSBT_NONE - 不绘制系统背景，完全透明
-        $hr = [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$val, 4)
-        $style = if ($glassEnabled) { "毛玻璃+透明" } else { "透明" }
-        Write-Log "透明框架已启用（背景透明度 $windowOpacity%，$style，hr=$hr）"
+        if ($bgBlur -gt 0) {
+            # 背景模糊>0时，使用亚克力效果，Windows自动模糊背后的桌面
+            $val = [DwmGlass]::DWMSBT_TRANSIENTWINDOW
+            $hr = [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$val, 4)
+            $style = if ($glassEnabled) { "毛玻璃+亚克力模糊" } else { "亚克力模糊" }
+            Write-Log "透明框架已启用（背景透明度 $windowOpacity%，背景模糊 $bgBlur%，$style，hr=$hr）"
+        } else {
+            # 背景模糊=0时，纯透明，桌面清晰透出
+            $val = 1  # DWMSBT_NONE
+            $hr = [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$val, 4)
+            $style = if ($glassEnabled) { "毛玻璃+透明" } else { "透明" }
+            Write-Log "透明框架已启用（背景透明度 $windowOpacity%，$style，hr=$hr）"
+        }
     } elseif ($glassEnabled) {
         Enable-NovaGlass $hwnd
     } else {
@@ -328,7 +336,7 @@ function Save-Apps($apps) {
 
 function Get-Settings {
     $s = Read-Json $SetFile $null
-    $r = [pscustomobject]@{ iconSize = 64; cols = 6; theme = 'dark'; win = $null; glassEnabled = $true; glassIntensity = 50; bgStyle = 'mica'; windowOpacity = 100; bgImageEnabled = $false; bgImagePath = ''; bgImageMode = 'cover'; iconFontFamily = 'system'; iconFontSize = 12; iconFontColor = '#ececf1'; iconFontWeight = 600 }
+    $r = [pscustomobject]@{ iconSize = 64; cols = 6; theme = 'dark'; win = $null; glassEnabled = $true; glassIntensity = 50; bgStyle = 'mica'; windowOpacity = 100; bgBlur = 0; bgImageEnabled = $false; bgImagePath = ''; bgImageMode = 'cover'; iconFontFamily = 'system'; iconFontSize = 12; iconFontColor = '#ececf1'; iconFontWeight = 600 }
     if ($s) {
         if ($s.PSObject.Properties['iconSize'])      { $r.iconSize      = [int]$s.iconSize }
         if ($s.PSObject.Properties['cols'])          { $r.cols          = [int]$s.cols }
@@ -338,6 +346,7 @@ function Get-Settings {
         if ($s.PSObject.Properties['glassIntensity']){ $r.glassIntensity= [int]$s.glassIntensity }
         if ($s.PSObject.Properties['bgStyle'])       { $r.bgStyle       = [string]$s.bgStyle }
         if ($s.PSObject.Properties['windowOpacity']) { $r.windowOpacity = [int]$s.windowOpacity }
+        if ($s.PSObject.Properties['bgBlur'])        { $r.bgBlur        = [int]$s.bgBlur }
         if ($s.PSObject.Properties['bgImageEnabled']){ $r.bgImageEnabled= [bool]$s.bgImageEnabled }
         if ($s.PSObject.Properties['bgImagePath'])   { $r.bgImagePath   = [string]$s.bgImagePath }
         if ($s.PSObject.Properties['bgImageMode'])   { $r.bgImageMode   = [string]$s.bgImageMode }
@@ -1136,7 +1145,7 @@ function Invoke-NovaApi([string]$op, $data) {
             $k = [string]$data.k; $v = $data.v; $s = Get-Settings
             if ($k -eq 'all') {
                 $s = $v | ConvertTo-Json -Depth 10 | ConvertFrom-Json
-                Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity)
+                Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur)
                 Save-Settings $s
                 return [pscustomobject]@{ ok = $true; settings = $s }
             }
@@ -1147,13 +1156,17 @@ function Invoke-NovaApi([string]$op, $data) {
                 'theme'    { if ($v -eq 'light' -or $v -eq 'dark') { $s.theme = $v } }
                 'glassEnabled' {
                     $s.glassEnabled = ($v -eq 'true' -or $v -eq 'True')
-                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity)
+                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur)
                 }
                 'glassIntensity' { $n = 50; if ([int]::TryParse($v, [ref]$n)) { $s.glassIntensity = [Math]::Max(0, [Math]::Min(100, $n)) } }
                 'bgStyle' { if ($v -eq 'mica' -or $v -eq 'liquid') { $s.bgStyle = $v } }
                 'windowOpacity' {
                     $n = 100; if ([int]::TryParse($v, [ref]$n)) { $s.windowOpacity = [Math]::Max(20, [Math]::Min(100, $n)) }
-                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity)
+                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur)
+                }
+                'bgBlur' {
+                    $n = 0; if ([int]::TryParse($v, [ref]$n)) { $s.bgBlur = [Math]::Max(0, [Math]::Min(100, $n)) }
+                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur)
                 }
                 'bgImageEnabled' { $s.bgImageEnabled = ($v -eq 'true' -or $v -eq 'True') }
                 'bgImagePath' { $s.bgImagePath = $v }
@@ -1260,7 +1273,7 @@ try {
 
         if ($script:InitStep -eq 0) {
             Set-NovaWindowLayout -Windowed:$script:WantWindowed
-            Set-NovaDwmBackground $form.Handle $settings.glassEnabled ([int]$settings.windowOpacity)
+            Set-NovaDwmBackground $form.Handle $settings.glassEnabled ([int]$settings.windowOpacity) ([int]$settings.bgBlur)
             Start-NovaWebViewInit
             $preheatTimer.Start()
         }
