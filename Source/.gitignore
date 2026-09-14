@@ -30,3 +30,6 @@ data/ChatGPT/
 data/*.ps1.bak
 
 data/WebView2Profile/
+
+# 发布包
+Release/
