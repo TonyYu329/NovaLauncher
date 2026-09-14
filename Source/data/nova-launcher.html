@@ -68,7 +68,7 @@
     --shadow: 0 18px 50px rgba(0,0,0,.55);
     --accent: #6d8bff;
     --accent-2: #9b7cff;
-    --panel: rgba(26,26,32,.72);
+    --panel: rgba(20,20,26,0.96);
     --danger: #ff8a8a;
     --danger-glow: rgba(255,138,138,.23);
     --warn: #ffc46b;
@@ -91,7 +91,7 @@
     --shadow: 0 18px 50px rgba(40,50,90,.18);
     --accent: #4c6fff;
     --accent-2: #7c5cff;
-    --panel: rgba(255,255,255,.80);
+    --panel: rgba(255,255,255,0.97);
     --danger: #d33b3b;
     --danger-glow: rgba(211,59,59,.18);
     --warn: #b5730a;
@@ -177,6 +177,12 @@
   }
   .icon-btn:hover{ background:var(--glass-hover); border-color:var(--stroke); transform:translateY(-1px); }
   .icon-btn:active{ transform:scale(.94); }
+  /* 浅色模式：设置按钮背景与窗口控制按钮一致（透明） */
+  html[data-theme="light"] .icon-btn{ background:transparent; }
+  html[data-theme="light"] .icon-btn:hover{ background:rgba(0,0,0,0.06); }
+  /* 深色模式：设置按钮颜色与窗口控制按钮一致（--text-2） */
+  html[data-theme="dark"] .icon-btn{ color:var(--text-2); }
+  html[data-theme="dark"] .icon-btn:hover{ color:var(--text-1); }
 
   /* ---------- 窗口控制（最小化 / 最大化还原 / 关闭） ---------- */
   /* 宿主打开窗口时已去掉系统标题栏并铺满屏幕，所以这三个按钮就是唯一的窗口操作入口 */
@@ -724,6 +730,7 @@
   <div class="sec" data-page-node-id="ZJAeG6LsaGi96x6Ls21nkF">
     <h3 data-page-node-id="87IdYGemb6L3BjBz0QHamp">数据</h3>
     <button class="btn-ghost" id="revealData" data-page-node-id="jr6bqxa83oRkYZTbTFXDLT">打开数据目录</button>
+    <button class="btn-ghost" id="resetSettings" style="margin-top:8px" data-page-node-id="resetBtn">恢复默认设置</button>
     <button class="btn-ghost" id="quitHost" style="margin-top:8px" data-page-node-id="OKZhQmtqqTXfB1KmhIZBXU">退出 Nova Launcher</button>
   </div>
 </aside>
@@ -1085,7 +1092,8 @@ function applyStyle() {
 function applyWindowOpacity() {
   const s = state.settings;
   const opacity = Math.max(20, Math.min(100, s.windowOpacity ?? 100));
-  document.querySelector(".window").style.opacity = (opacity / 100).toFixed(2);
+  const backdrop = document.querySelector(".backdrop");
+  if (backdrop) backdrop.style.opacity = (opacity / 100).toFixed(2);
   const range = $("windowOpacity");
   if (range) range.value = opacity;
   const val = $("opacityVal");
@@ -1097,7 +1105,8 @@ function applyBgImage() {
   const layer = $("bgImageLayer");
   if (!layer) return;
   if (s.bgImageEnabled && s.bgImagePath) {
-    layer.style.backgroundImage = `url("file:///${s.bgImagePath.replace(/\\/g, "/")}")`;
+    const url = s.bgImagePath.startsWith("http") ? s.bgImagePath : `https://nova.app/bgimages/${s.bgImagePath}`;
+    layer.style.backgroundImage = `url("${url}")`;
     layer.style.backgroundSize = s.bgImageMode || "cover";
     if (s.bgImageMode === "repeat") { layer.style.backgroundRepeat = "repeat"; }
     else { layer.style.backgroundRepeat = "no-repeat"; }
@@ -1784,6 +1793,27 @@ $("addApp").onclick = async () => {
 
 $("revealData").onclick = () => API.reveal().then(() => toast("已打开数据目录")).catch(() => {});
 $("quitHost").onclick   = () => API.quit().then(() => toast("正在退出…")).catch(() => {});
+
+/* ---------- 恢复默认设置 ---------- */
+const DEFAULT_SETTINGS = {
+  iconSize: 64, cols: 6, theme: "dark",
+  glassEnabled: true, glassIntensity: 50, bgStyle: "mica",
+  windowOpacity: 100,
+  bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover",
+  iconFontFamily: "system", iconFontSize: 12, iconFontColor: "#ececf1", iconFontWeight: 600
+};
+$("resetSettings").onclick = async () => {
+  if (!confirm("确定要恢复所有设置为默认值吗？")) return;
+  state.settings = Object.assign({}, DEFAULT_SETTINGS);
+  try {
+    await API.setting("all", state.settings);
+    renderSettings();
+    renderGrid();
+    toast("已恢复默认设置");
+  } catch (e) {
+    toast("恢复失败：" + e.message, true);
+  }
+};
 
 /* ---------- 一键检查应用有效性 ----------
    宿主 /api/checkapps 逐项验证：文件存在性 + .lnk 深挖目标（快捷方式在、目标被卸载也算失效）。

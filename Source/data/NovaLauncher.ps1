@@ -1028,7 +1028,14 @@ function Invoke-NovaApi([string]$op, $data) {
             $dlg.Title = '选择背景图片'
             $dlg.Multiselect = $false
             if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-                return [pscustomobject]@{ ok = $true; path = $dlg.FileName }
+                $bgDir = Join-Path $DataDir 'bgimages'
+                if (-not (Test-Path $bgDir)) { New-Item -ItemType Directory -Path $bgDir -Force | Out-Null }
+                $ext = [System.IO.Path]::GetExtension($dlg.FileName)
+                $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+                $destName = "bg_$stamp$ext"
+                $destPath = Join-Path $bgDir $destName
+                Copy-Item -LiteralPath $dlg.FileName -Destination $destPath -Force
+                return [pscustomobject]@{ ok = $true; path = $destName; fullPath = $destPath }
             }
             return [pscustomobject]@{ ok = $false; cancelled = $true }
         }
@@ -1106,7 +1113,14 @@ function Invoke-NovaApi([string]$op, $data) {
             return [pscustomobject]@{ ok = $true }
         }
         'setting' {
-            $k = [string]$data.k; $v = [string]$data.v; $s = Get-Settings
+            $k = [string]$data.k; $v = $data.v; $s = Get-Settings
+            if ($k -eq 'all') {
+                $s = $v | ConvertTo-Json -Depth 10 | ConvertFrom-Json
+                if ($s.glassEnabled) { Enable-NovaGlass $form.Handle } else { Disable-NovaGlass $form.Handle }
+                Save-Settings $s
+                return [pscustomobject]@{ ok = $true; settings = $s }
+            }
+            $v = [string]$v
             switch ($k) {
                 'iconSize' { $n = 64; if ([int]::TryParse($v, [ref]$n)) { $s.iconSize = [Math]::Max(36, [Math]::Min(160, $n)) } }
                 'cols'     { $n = 6;  if ([int]::TryParse($v, [ref]$n)) { $s.cols     = [Math]::Max(3,  [Math]::Min(12, $n)) } }
