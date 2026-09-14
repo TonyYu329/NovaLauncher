@@ -177,10 +177,10 @@
   }
   .icon-btn:hover{ background:var(--glass-hover); border-color:var(--stroke); transform:translateY(-1px); }
   .icon-btn:active{ transform:scale(.94); }
-  /* 浅色模式：设置按钮背景与窗口控制按钮一致（透明） */
-  html[data-theme="light"] .icon-btn{ background:transparent; }
-  html[data-theme="light"] .icon-btn:hover{ background:rgba(0,0,0,0.06); }
-  /* 深色模式：设置按钮颜色与窗口控制按钮一致（--text-2） */
+  /* 浅色模式：设置按钮与窗口控制按钮样式完全一致 */
+  html[data-theme="light"] .icon-btn{ background:transparent; color:var(--text-2); }
+  html[data-theme="light"] .icon-btn:hover{ background:var(--glass-hover); color:var(--text-1); border-color:transparent; transform:none; }
+  /* 深色模式：设置按钮颜色与窗口控制按钮一致 */
   html[data-theme="dark"] .icon-btn{ color:var(--text-2); }
   html[data-theme="dark"] .icon-btn:hover{ color:var(--text-1); }
 
@@ -386,6 +386,9 @@
   /* 液态玻璃下确保窗口控制按钮可见 */
   html[data-bgstyle="liquid"] .wbtn{ color: var(--text-1); background: rgba(255,255,255,0.08); }
   html[data-bgstyle="liquid"] .wbtn:hover{ background: rgba(255,255,255,0.16); }
+  /* 液态玻璃下设置按钮与窗口控制按钮一致 */
+  html[data-bgstyle="liquid"] .icon-btn{ color: var(--text-1); background: rgba(255,255,255,0.08); }
+  html[data-bgstyle="liquid"] .icon-btn:hover{ background: rgba(255,255,255,0.16); border-color:transparent; transform:none; }
 
   /* ---------- 背景图片 ---------- */
   #bgImageLayer{ position:absolute; inset:0; z-index:0; background-size:cover; background-position:center;
