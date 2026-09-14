@@ -594,10 +594,10 @@ function Bring-NewWindowToFront {
         foreach ($h in $cur) {
             $key = $h.ToInt64()
             if ($cands.ContainsKey($key)) { continue }
-            $pid = [NovaWindow]::PidOf($h)
-            if ($pid -eq $selfPid) { continue }
-            if ($LaunchedPid -gt 0 -and $pid -ne $LaunchedPid) {
-                $pn = [NovaWindow]::ProcNameOf($pid)
+            $winPid = [NovaWindow]::PidOf($h)
+            if ($winPid -eq $selfPid) { continue }
+            if ($LaunchedPid -gt 0 -and $winPid -ne $LaunchedPid) {
+                $pn = [NovaWindow]::ProcNameOf($winPid)
                 if ($pn -and $pn -notlike 'explorer' -and $pn -notlike 'searchhost') { continue }
             }
             $touched = $h
