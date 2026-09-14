@@ -54,7 +54,7 @@
 
   /* ---------- 深色主题（默认）---------- */
   html[data-theme="dark"]{
-    --bg-base: #101014;
+    --bg-base: rgba(16,16,20,0.72);
     --bg-glow-1: #4c6fff;
     --bg-glow-2: #8b5cf6;
     --bg-glow-3: #22d3ee;
@@ -77,7 +77,7 @@
   }
   /* ---------- 浅色主题 ---------- */
   html[data-theme="light"]{
-    --bg-base: #eef0f5;
+    --bg-base: rgba(238,240,245,0.70);
     --bg-glow-1: #9db4ff;
     --bg-glow-2: #c3b0ff;
     --bg-glow-3: #9fe8f5;
@@ -275,7 +275,7 @@
   .empty{
     grid-column:1 / -1; display:flex; flex-direction:column; align-items:center; gap:14px;
     padding:54px 20px; border:1.5px dashed var(--stroke-strong); border-radius:var(--radius-panel);
-    background:var(--glass); max-width:520px; margin:0 auto;
+    background:var(--glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); max-width:520px; margin:0 auto;
   }
   .empty .big{ font-size:38px; opacity:.5; }
   .empty h2{ font-size:16px; font-weight:600; }
@@ -605,8 +605,7 @@
 <script>
 "use strict";
 
-const HOSTED = location.protocol === "http:";
-const TOKEN  = new URLSearchParams(location.search).get("t") || "";
+const HOSTED = !!(window.chrome && window.chrome.webview);
 const $ = id => document.getElementById(id);
 
 let state = { apps: [], settings: { iconSize: 64, cols: 6, theme: "dark" } };
@@ -629,33 +628,33 @@ const LSKEY = "nova-demo-v1";
 /* ==========================================================================
    数据适配层：宿主模式走本地 HTTP API；演示模式走 localStorage
    ========================================================================== */
-/* 刻意不用 URLSearchParams：它按 application/x-www-form-urlencoded 规则把「空格」
-   编成 '+'，而宿主用 [uri]::UnescapeDataString 解码（只认 %XX 不认 '+'），
-   于是 "C:\Program Files\..." 被解成 "C:\Program+Files\..." → 判定路径无效而被丢弃。
-   统一走 encodeURIComponent（空格 → %20），与 /api/icon 的编码方式一致。 */
-function encodeQuery(params) {
-  return Object.keys(params)
-    .map(k => encodeURIComponent(k) + "=" + encodeURIComponent(params[k] == null ? "" : String(params[k])))
-    .join("&");
-}
+/* ==========================================================================
+   WebView2 通信层（postMessage，替代 fetch /api/*）
+   ========================================================================== */
+let __reqId = 0;
+const __pending = new Map();
+const __iconCache = new Map();
 
-async function apiGet(path, params) {
-  const res = await fetch(path + "?" + encodeQuery(Object.assign({ t: TOKEN }, params || {})), { cache: "no-store" });
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  return res.json();
-}
-
-async function apiPost(path, body) {
-  const res = await fetch(path + "?" + encodeQuery({ t: TOKEN }), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body || {}),
-    cache: "no-store"
+if (HOSTED) {
+  window.chrome.webview.addEventListener("message", (e) => {
+    let msg;
+    try { msg = typeof e.data === "string" ? JSON.parse(e.data) : e.data; } catch (_) { return; }
+    if (msg.id != null && __pending.has(msg.id)) {
+      const p = __pending.get(msg.id);
+      __pending.delete(msg.id);
+      msg.ok === false ? p.reject(new Error(msg.msg || "操作失败")) : p.resolve(msg.data);
+    }
   });
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  return res.json();
 }
 
+function novaSend(op, data) {
+  if (!HOSTED) return Promise.reject(new Error("no-host"));
+  return new Promise((resolve, reject) => {
+    const id = ++__reqId;
+    __pending.set(id, { resolve, reject });
+    window.chrome.webview.postMessage({ id, op, data: data || {} });
+  });
+}
 const API = {
   hosted: HOSTED,
 
@@ -664,7 +663,7 @@ const API = {
       /* ih/dpr：宿主用「客户区高度 − innerHeight×devicePixelRatio」反推浏览器自绘标题栏
          的高度，再把窗口整体上移这么多，把那条栏顶到屏幕外。
          必须乘 devicePixelRatio：宿主量的是物理像素，innerHeight 是 CSS 像素。 */
-      const d = await apiGet("/api/state", { ih: window.innerHeight, dpr: window.devicePixelRatio });
+      const d = await novaSend("state");
       d.apps = Array.isArray(d.apps) ? d.apps : (d.apps ? [d.apps] : []);
       return d;
     }
@@ -675,46 +674,32 @@ const API = {
     return { apps, settings: sets, demo: true };
   },
 
-  iconUrl(app, i, size) {
+  async iconData(app, size) {
     if (!HOSTED) return null;
-    /* 图标按「路径」取，不按行号：
-       行号会在拖拽排序后变化，一旦界面顺序与落盘顺序出现任何偏差，
-       按行号取的图标就会与名字整体错位（历史 bug：宿主 /api/move 判越界 →
-       顺序没存下 → 界面重排而图标仍是旧位置的）。
-       按路径取时，图标的来源与标签的来源是同一个 app 对象，天然一一对应。 */
     const p = app && app.path;
-    if (!p || p.indexOf("shell:") === 0) return null;   // UWP/商店应用无本地图标 → 字形兜底
-    return "/api/icon?p=" + encodeURIComponent(p) + "&s=" + size + "&t=" + TOKEN;
+    if (!p || p.indexOf("shell:") === 0) return null;
+    const key = p + "|" + size;
+    if (__iconCache.has(key)) return __iconCache.get(key);
+    try {
+      const r = await novaSend("icon", { p, s: size });
+      if (r && r.ok && r.dataUri) { __iconCache.set(key, r.dataUri); return r.dataUri; }
+    } catch (e) {}
+    return null;
   },
 
-  async launch(i)            { return HOSTED ? apiGet("/api/launch", { i }) : { ok:true, msg:"演示模式：不会真的启动程序" }; },
-  async pick()               { return HOSTED ? apiGet("/api/pick")        : demoAdd(); },
-  async remove(i)            { return HOSTED ? apiGet("/api/remove", { i }) : demoRemove(i); },
-  async rename(i, p, name)   { return HOSTED ? apiGet("/api/rename", { i, p, n: name }) : demoRename(i, name); },
-  async move(from, to)       { return HOSTED ? apiGet("/api/move", { from, to }) : demoMove(from, to); },
-  async setting(k, v)        { return HOSTED ? apiGet("/api/setting", { k, v }) : demoSetting(k, v); },
-  async reveal(i)            { return HOSTED ? apiGet("/api/reveal", { i }) : { ok:false, msg:"演示模式" }; },
-  async addPath(p, n, k)     { return HOSTED ? apiGet("/api/add", { p, n, k }) : { ok:false, msg:"演示模式" }; },
-  async addBatch(items)      { return HOSTED ? apiPost("/api/addbatch", { items }) : { ok:false, msg:"演示模式" }; },
-  async installed(sort, q)   { return HOSTED ? apiGet("/api/installed", { sort: sort || "name", q: q || "" }) : { ok:false, apps:[], msg:"演示模式" }; },
-  async checkApps()          { return HOSTED ? apiGet("/api/checkapps") : { ok:true, total: state.apps.length, okCount: state.apps.length, bad: [] }; },
-  async quit()               { return HOSTED ? apiGet("/api/quit")        : { ok:false, msg:"演示模式" }; },
-  /* 心跳：既让宿主知道窗口还活着，也用来探测宿主是否已挂掉（连续失败就翻红点）。
-     顺带把 innerHeight / devicePixelRatio 报给宿主 —— 它靠这两个数算出自绘标题栏高度。
-     宿主会回一个 state：它在空闲节拍「守门」纠正窗口（还原后补回上移偏移、剥掉被浏览器
-     加回的标题栏样式），形态可能已在背后变化，所以每次心跳都据此同步「最大化/还原」图标。
-     注意 connOk() 必须在解析 JSON 之前调用：state 只是附带信息，解析失败不该被当成宿主挂了。 */
-  ping() {
-    if (!HOSTED) return;
-    fetch("/api/ping?" + encodeQuery({ t: TOKEN, ih: window.innerHeight, dpr: window.devicePixelRatio }))
-      .then(r => { if (!r.ok) throw new Error("HTTP " + r.status); connOk(); return r.json().catch(() => null); })
-      .then(d => {
-        if (!d) return;
-        if (d.state) applyWinChrome(d.state);
-      })
-      .catch(() => connFail());
-  },
-  async win(op)              { return HOSTED ? apiGet("/api/win", { op })  : { ok:false, msg:"演示模式" }; }
+  async launch(i)            { return HOSTED ? novaSend("launch", { i }) : { ok:true, msg:"演示模式：不会真的启动程序" }; },
+  async pick()               { return HOSTED ? novaSend("pick")        : demoAdd(); },
+  async remove(i)            { return HOSTED ? novaSend("remove", { i }) : demoRemove(i); },
+  async rename(i, p, name)   { return HOSTED ? novaSend("rename", { i, p, n: name }) : demoRename(i, name); },
+  async move(from, to)       { return HOSTED ? novaSend("move", { from, to }) : demoMove(from, to); },
+  async setting(k, v)        { return HOSTED ? novaSend("setting", { k, v }) : demoSetting(k, v); },
+  async reveal(i)            { return HOSTED ? novaSend("reveal", { i }) : { ok:false, msg:"演示模式" }; },
+  async addPath(p, n, k)     { return HOSTED ? novaSend("add", { p, n, k }) : { ok:false, msg:"演示模式" }; },
+  async addBatch(items)      { return HOSTED ? novaSend("addbatch", { items }) : { ok:false, msg:"演示模式" }; },
+  async installed(sort, q)   { return HOSTED ? novaSend("installed", { sort: sort || "name", q: q || "" }) : { ok:false, apps:[], msg:"演示模式" }; },
+  async checkApps()          { return HOSTED ? novaSend("checkapps") : { ok:true, total: state.apps.length, okCount: state.apps.length, bad: [] }; },
+  async quit()               { return HOSTED ? novaSend("quit")        : { ok:false, msg:"演示模式" }; },
+  async win(op)              { return HOSTED ? novaSend("win", { op })  : { ok:false, msg:"演示模式" }; }
 };
 
 /* ---------- 演示模式实现 ---------- */
@@ -769,10 +754,16 @@ function glyphOf(app) {
   return n ? n[0].toUpperCase() : "?";
 }
 
-function instIconUrl(path, size) {
+async function instIconData(path, size) {
   if (!HOSTED) return null;
   if (path && path.indexOf("shell:") === 0) return null;
-  return "/api/icon?p=" + encodeURIComponent(path) + "&s=" + size + "&t=" + TOKEN;
+  const key = path + "|" + size;
+  if (__iconCache.has(key)) return __iconCache.get(key);
+  try {
+    const r = await novaSend("icon", { p: path, s: size });
+    if (r && r.ok && r.dataUri) { __iconCache.set(key, r.dataUri); return r.dataUri; }
+  } catch (e) {}
+  return null;
 }
 
 function makeIcon(app, i, reqSize) {
@@ -782,17 +773,20 @@ function makeIcon(app, i, reqSize) {
   glyph.className = "glyph";
   glyph.style.background = gradientOf(app);
   glyph.textContent = glyphOf(app);
-  const url = API.iconUrl(app, i, reqSize);
-  if (url) {
-    const img = document.createElement("img");
-    img.alt = "";
-    img.addEventListener("error", () => box.classList.add("fallback"));
-    box.appendChild(img);
-    img.src = url;                       // 放在监听之后，避免缓存命中时错过 error
+  box.appendChild(glyph);
+  // 异步加载图标（WebView2 postMessage 返回 dataUri），加载成功后替换 glyph
+  if (HOSTED) {
+    API.iconData(app, reqSize).then(uri => {
+      if (!uri) { box.classList.add("fallback"); return; }
+      const img = document.createElement("img");
+      img.alt = "";
+      img.addEventListener("error", () => box.classList.add("fallback"));
+      box.insertBefore(img, glyph);
+      img.src = uri;
+    }).catch(() => box.classList.add("fallback"));
   } else {
     box.classList.add("fallback");
   }
-  box.appendChild(glyph);
   return box;
 }
 
@@ -839,13 +833,16 @@ function renderList() {
     r.className = "row";
     const mini = document.createElement("div");
     mini.className = "mini";
-    const url = API.iconUrl(app, i, 64);
-    if (url) {
-      const img = document.createElement("img");
-      img.alt = "";
-      img.addEventListener("error", () => { mini.innerHTML = ""; mini.appendChild(fallbackMini(app)); });
-      mini.appendChild(img);
-      img.src = url;
+    if (HOSTED) {
+      API.iconData(app, 64).then(uri => {
+        if (!uri) { mini.innerHTML = ""; mini.appendChild(fallbackMini(app)); return; }
+        const img = document.createElement("img");
+        img.alt = "";
+        img.addEventListener("error", () => { mini.innerHTML = ""; mini.appendChild(fallbackMini(app)); });
+        mini.innerHTML = "";
+        mini.appendChild(img);
+        img.src = uri;
+      }).catch(() => { mini.innerHTML = ""; mini.appendChild(fallbackMini(app)); });
     } else {
       mini.appendChild(fallbackMini(app));
     }
@@ -1350,7 +1347,7 @@ if (HOSTED) API.win("state").then(r => { if (r && r.ok) applyWinChrome(r.state);
   function sendMove(x, y) {
     if (busy) { queued = { x, y }; return; }   // 在途：只留最新点，回来再发，绝不堆请求
     busy = true;
-    apiGet("/api/win", { op: "move", x, y }).catch(() => {}).then(() => {
+    novaSend("win", { op: "move", x, y }).catch(() => {}).then(() => {
       busy = false;
       if (queued && dragging) { const q = queued; queued = null; sendMove(q.x, q.y); }
     });
@@ -1367,7 +1364,7 @@ if (HOSTED) API.win("state").then(r => { if (r && r.ok) applyWinChrome(r.state);
     if (e.target.closest("button, input, a, .icon-btn, .wctrl")) return;  // 控件上不拖
     startMX = e.screenX; startMY = e.screenY;                            // await 前先记鼠标基准
     try { bar.setPointerCapture(e.pointerId); pid = e.pointerId; } catch (_) {}
-    let r; try { r = await apiGet("/api/win", { op: "rect" }); } catch (_) { endDrag(); return; }
+    let r; try { r = await novaSend("win", { op: "rect" }); } catch (_) { endDrag(); return; }
     if (!r || !r.ok || !r.rect) { endDrag(); return; }
     startL = r.rect.l; startT = r.rect.t;                                // 窗口当前左上角(物理px)
     busy = false; queued = null; latest = null; dragging = true;
@@ -1553,12 +1550,14 @@ async function loadInstalled() {
       ck.type = "checkbox"; ck.className = "ick"; ck.checked = false; ck.disabled = already;
       ck.addEventListener("change", updateInstSel);
       const mini = document.createElement("div"); mini.className = "mini";
-      const iu = instIconUrl(app.path, 64);
-      if (iu) {
-        const img = document.createElement("img"); img.alt = "";
-        img.addEventListener("error", () => { mini.innerHTML = ""; mini.appendChild(glyphMini(app)); });
-        mini.appendChild(img); img.src = iu;
-      } else { mini.appendChild(glyphMini(app)); }
+      instIconData(app.path, 64).then(iu => {
+        if (iu) {
+          const img = document.createElement("img"); img.alt = "";
+          img.addEventListener("error", () => { mini.innerHTML = ""; mini.appendChild(glyphMini(app)); });
+          mini.innerHTML = ""; mini.appendChild(img); img.src = iu;
+        } else { mini.innerHTML = ""; mini.appendChild(glyphMini(app)); }
+      }).catch(() => { mini.innerHTML = ""; mini.appendChild(glyphMini(app)); });
+      mini.appendChild(glyphMini(app));
       const nm = document.createElement("div"); nm.className = "iname"; nm.textContent = app.name; nm.title = app.name;
       // 使用频率 + 安装时间（数值/日期均由宿主生成，不含用户文本）
       const mt = document.createElement("div"); mt.className = "imeta";
@@ -1676,7 +1675,6 @@ async function init() {
       document.body.classList.add("hosted");      // 显示窗口控制按钮（演示模式下隐藏）
       connOk();                                   // 绿点，正常态不出文字
       $("drawerSub").textContent = "Nova Launcher · V1.0 · " + (d.dataDir || "");
-      setInterval(() => API.ping(), 3000);          // 心跳：窗口关闭后宿主自动退出
     } else {
       setConn("offline", "未连接宿主（演示模式：直接打开的 HTML，请用 NovaLauncher.bat 启动）");
       $("drawerSub").textContent = "演示模式 · 未连接宿主（请用 NovaLauncher.bat 启动）";

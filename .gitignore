@@ -28,3 +28,5 @@ issue_screenshot.png
 # 临时实验目录
 data/ChatGPT/
 data/*.ps1.bak
+
+data/WebView2Profile/

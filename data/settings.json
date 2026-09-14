@@ -1,5 +1,8 @@
-{
+﻿{
     "iconSize":  100,
     "cols":  10,
-    "theme":  "light"
+    "theme":  "dark",
+    "win":  {
+                "state":  "windowed"
+            }
 }
