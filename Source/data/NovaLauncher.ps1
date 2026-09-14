@@ -239,6 +239,26 @@ function Disable-NovaGlass([IntPtr]$hwnd) {
     Write-Log "毛玻璃已禁用"
 }
 
+# 根据 glassEnabled 和 windowOpacity 设置 DWM 背景
+# windowOpacity < 100 时，即使禁用毛玻璃也保持透明框架，让桌面透出来
+function Set-NovaDwmBackground([IntPtr]$hwnd, [bool]$glassEnabled, [int]$windowOpacity) {
+    if ($glassEnabled) {
+        Enable-NovaGlass $hwnd
+        return
+    }
+    if ($windowOpacity -lt 100) {
+        # 保持透明框架，使用亚克力效果透出桌面
+        $m = New-Object DwmGlass+MARGINS
+        $m.L = -1; $m.T = -1; $m.R = -1; $m.B = -1
+        [DwmGlass]::DwmExtendFrameIntoClientArea($hwnd, [ref]$m) | Out-Null
+        $val = [DwmGlass]::DWMSBT_TRANSIENTWINDOW
+        [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$val, 4) | Out-Null
+        Write-Log "透明框架已启用（背景透明度 $windowOpacity%，亚克力）"
+    } else {
+        Disable-NovaGlass $hwnd
+    }
+}
+
 # ---------------------------------------------------------------------------
 # NovaForm: 子类化 Form，拦截 WM_DPICHANGED（跨屏 DPI 切换）
 # ---------------------------------------------------------------------------
@@ -251,9 +271,6 @@ using System.Runtime.InteropServices;
 public class NovaForm : Form {
     public Action NovaDpiChanged;
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
-    public NovaForm() {
-        SetStyle(ControlStyles.SupportsTransparentBackColor, true);
-    }
     protected override void WndProc(ref Message m) {
         if (m.Msg == 0x02E0) {
             RECT rc = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
@@ -819,8 +836,7 @@ $form.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
 $form.ShowInTaskbar   = $true
 $form.MaximizeBox     = $false
 $form.MinimizeBox     = $false
-$form.AllowTransparency = $true
-$form.BackColor       = [System.Drawing.Color]::FromArgb(0, 0, 0, 0)
+$form.BackColor       = [System.Drawing.Color]::FromArgb(16, 16, 20)
 $form.Icon            = New-Object System.Drawing.Icon((Join-Path $DataDir 'nova-logo.ico'))
 $form.Text            = 'Nova Launcher'
 
@@ -1120,7 +1136,7 @@ function Invoke-NovaApi([string]$op, $data) {
             $k = [string]$data.k; $v = $data.v; $s = Get-Settings
             if ($k -eq 'all') {
                 $s = $v | ConvertTo-Json -Depth 10 | ConvertFrom-Json
-                if ($s.glassEnabled) { Enable-NovaGlass $form.Handle } else { Disable-NovaGlass $form.Handle }
+                Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity)
                 Save-Settings $s
                 return [pscustomobject]@{ ok = $true; settings = $s }
             }
@@ -1131,11 +1147,14 @@ function Invoke-NovaApi([string]$op, $data) {
                 'theme'    { if ($v -eq 'light' -or $v -eq 'dark') { $s.theme = $v } }
                 'glassEnabled' {
                     $s.glassEnabled = ($v -eq 'true' -or $v -eq 'True')
-                    if ($s.glassEnabled) { Enable-NovaGlass $form.Handle } else { Disable-NovaGlass $form.Handle }
+                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity)
                 }
                 'glassIntensity' { $n = 50; if ([int]::TryParse($v, [ref]$n)) { $s.glassIntensity = [Math]::Max(0, [Math]::Min(100, $n)) } }
                 'bgStyle' { if ($v -eq 'mica' -or $v -eq 'liquid') { $s.bgStyle = $v } }
-                'windowOpacity' { $n = 100; if ([int]::TryParse($v, [ref]$n)) { $s.windowOpacity = [Math]::Max(20, [Math]::Min(100, $n)) } }
+                'windowOpacity' {
+                    $n = 100; if ([int]::TryParse($v, [ref]$n)) { $s.windowOpacity = [Math]::Max(20, [Math]::Min(100, $n)) }
+                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity)
+                }
                 'bgImageEnabled' { $s.bgImageEnabled = ($v -eq 'true' -or $v -eq 'True') }
                 'bgImagePath' { $s.bgImagePath = $v }
                 'bgImageMode' { if ($v -in @('cover','contain','100% auto','repeat','100% 100%')) { $s.bgImageMode = $v } }
@@ -1241,7 +1260,7 @@ try {
 
         if ($script:InitStep -eq 0) {
             Set-NovaWindowLayout -Windowed:$script:WantWindowed
-            if ($settings.glassEnabled) { Enable-NovaGlass $form.Handle } else { Disable-NovaGlass $form.Handle }
+            Set-NovaDwmBackground $form.Handle $settings.glassEnabled ([int]$settings.windowOpacity)
             Start-NovaWebViewInit
             $preheatTimer.Start()
         }
