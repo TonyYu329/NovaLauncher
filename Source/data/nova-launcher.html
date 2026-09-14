@@ -1827,11 +1827,11 @@ $("quitHost").onclick   = () => API.quit().then(() => toast("正在退出…")).
 
 /* ---------- 恢复默认设置 ---------- */
 const DEFAULT_SETTINGS = {
-  iconSize: 64, cols: 10, theme: "dark",
-  glassEnabled: false, glassIntensity: 50, bgStyle: "mica",
+  iconSize: 100, cols: 10, theme: "dark",
+  glassEnabled: false, glassIntensity: 50, bgStyle: "liquid",
   windowOpacity: 100,
   bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover",
-  iconFontFamily: "system", iconFontSize: 12, iconFontColor: "#ececf1", iconFontWeight: 600
+  iconFontFamily: "system", iconFontSize: 14, iconFontColor: "#ffffff", iconFontWeight: 600
 };
 $("resetSettings").onclick = async () => {
   if (!confirm("确定要恢复所有设置为默认值吗？")) return;
