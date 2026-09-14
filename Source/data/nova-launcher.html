@@ -1057,24 +1057,40 @@ function applyStyle() {
   const enabled = s.glassEnabled !== false;
   const intensity = Math.max(0, Math.min(100, s.glassIntensity ?? 50));
   const bgStyle = s.bgStyle || "mica";
+  const isLight = s.theme === "light";
   const root = document.documentElement;
   root.dataset.bgstyle = bgStyle;
   if (enabled) {
     const alpha = 0.78 - (intensity / 100) * 0.55;
     const blur = (intensity / 100) * 24;
     if (bgStyle === "liquid") {
-      root.style.setProperty("--bg-base", `rgba(20,20,40,${(alpha * 0.7).toFixed(3)})`);
-      root.style.setProperty("--panel", `rgba(30,30,55,${(alpha * 0.6 + 0.05).toFixed(3)})`);
+      if (isLight) {
+        root.style.setProperty("--bg-base", `rgba(240,245,255,${(alpha * 0.7).toFixed(3)})`);
+        root.style.setProperty("--panel", `rgba(255,255,255,${(alpha * 0.6 + 0.05).toFixed(3)})`);
+      } else {
+        root.style.setProperty("--bg-base", `rgba(20,20,40,${(alpha * 0.7).toFixed(3)})`);
+        root.style.setProperty("--panel", `rgba(30,30,55,${(alpha * 0.6 + 0.05).toFixed(3)})`);
+      }
     } else {
-      root.style.setProperty("--bg-base", `rgba(16,16,20,${alpha.toFixed(3)})`);
-      root.style.setProperty("--panel", `rgba(26,26,32,${(alpha + 0.06).toFixed(3)})`);
+      if (isLight) {
+        root.style.setProperty("--bg-base", `rgba(238,240,245,${alpha.toFixed(3)})`);
+        root.style.setProperty("--panel", `rgba(255,255,255,${(alpha + 0.06).toFixed(3)})`);
+      } else {
+        root.style.setProperty("--bg-base", `rgba(16,16,20,${alpha.toFixed(3)})`);
+        root.style.setProperty("--panel", `rgba(26,26,32,${(alpha + 0.06).toFixed(3)})`);
+      }
     }
     root.style.setProperty("--glass-blur", `${blur.toFixed(1)}px`);
     root.classList.add("glass-on");
     root.classList.remove("glass-off");
   } else {
-    root.style.setProperty("--bg-base", "rgba(16,16,20,1)");
-    root.style.setProperty("--panel", "rgba(26,26,32,1)");
+    if (isLight) {
+      root.style.setProperty("--bg-base", "rgba(238,240,245,1)");
+      root.style.setProperty("--panel", "rgba(255,255,255,1)");
+    } else {
+      root.style.setProperty("--bg-base", "rgba(16,16,20,1)");
+      root.style.setProperty("--panel", "rgba(26,26,32,1)");
+    }
     root.style.setProperty("--glass-blur", "0px");
     root.classList.add("glass-off");
     root.classList.remove("glass-on");

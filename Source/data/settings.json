@@ -1,5 +1,5 @@
 ﻿{
-    "iconSize":  64,
+    "iconSize":  100,
     "cols":  10,
     "theme":  "dark",
     "win":  null,
@@ -12,6 +12,6 @@
     "bgImageMode":  "cover",
     "iconFontFamily":  "system",
     "iconFontSize":  12,
-    "iconFontColor":  "#ececf1",
+    "iconFontColor":  "#ffffff",
     "iconFontWeight":  600
 }
