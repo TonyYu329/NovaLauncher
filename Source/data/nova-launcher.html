@@ -776,7 +776,7 @@
 const HOSTED = !!(window.chrome && window.chrome.webview);
 const $ = id => document.getElementById(id);
 
-let state = { apps: [], settings: { iconSize: 64, cols: 6, theme: "dark", glassEnabled: true, glassIntensity: 50, bgStyle: "mica", windowOpacity: 100, bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover", iconFontFamily: "system", iconFontSize: 12, iconFontColor: "#ececf1", iconFontWeight: 600 } };
+let state = { apps: [], settings: { iconSize: 100, cols: 10, theme: "dark", glassEnabled: false, glassIntensity: 50, bgStyle: "liquid", windowOpacity: 100, bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover", iconFontFamily: "system", iconFontSize: 14, iconFontColor: "#ffffff", iconFontWeight: 600 } };
 
 /* ==========================================================================
    演示模式数据（直接双击打开 HTML 时使用，不执行任何启动动作）
@@ -838,7 +838,7 @@ const API = {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(LSKEY) || "null"); } catch (e) {}
     const apps  = (saved && saved.apps) || DEMO.slice(0, 6).map(a => Object.assign({}, a));
-    const sets  = (saved && saved.settings) || { iconSize:64, cols:6, theme:"dark", glassEnabled:true, glassIntensity:50, bgStyle:"mica", windowOpacity:100, bgImageEnabled:false, bgImagePath:"", bgImageMode:"cover", iconFontFamily:"system", iconFontSize:12, iconFontColor:"#ececf1", iconFontWeight:600 };
+    const sets  = (saved && saved.settings) || { iconSize:100, cols:10, theme:"dark", glassEnabled:false, glassIntensity:50, bgStyle:"liquid", windowOpacity:100, bgImageEnabled:false, bgImagePath:"", bgImageMode:"cover", iconFontFamily:"system", iconFontSize:14, iconFontColor:"#ffffff", iconFontWeight:600 };
     return { apps, settings: sets, demo: true };
   },
 
@@ -2072,7 +2072,7 @@ $("instAddSel").onclick = async () => {
    ========================================================================== */
 async function refresh() {
   const d = await API.state();
-  state = { apps: d.apps || [], settings: Object.assign({ iconSize:64, cols:6, theme:"dark", glassEnabled:true, glassIntensity:50 }, d.settings || {}) };
+  state = { apps: d.apps || [], settings: Object.assign({ iconSize:100, cols:10, theme:"dark", glassEnabled:false, glassIntensity:50 }, d.settings || {}) };
   renderAll();
   return d;
 }
