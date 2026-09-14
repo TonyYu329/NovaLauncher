@@ -428,6 +428,29 @@
     background-repeat:no-repeat; opacity:0; transition:opacity var(--anim-medium) var(--ease); }
   #bgImageLayer.on{ opacity:1; }
 
+  /* ---------- 桌面快照模糊层（bgBlur>0） ---------- */
+  /* inset 外扩 4% 抵消高斯模糊边缘的透明采样；背景图由 JS 设置，filter 控制模糊半径/降饱和 */
+  #bgSnapshotLayer{
+    position:fixed; inset:-4%; z-index:0; overflow:hidden; pointer-events:none;
+    background-size:cover; background-position:center; background-repeat:no-repeat;
+    opacity:0; visibility:hidden; transition:opacity .18s ease;
+    will-change:filter, opacity;
+  }
+  /* 固定灰膜：毛玻璃发灰质感，颜色随主题由 JS 覆盖 */
+  #bgSnapshotLayer::after{
+    content:""; position:absolute; inset:0; background:rgba(18,18,24,0.22);
+  }
+  html[data-theme="light"] #bgSnapshotLayer::after{ background:rgba(248,249,253,0.52); }
+  /* 快照模糊模式：隐藏原液态/Mica 光晕与背景渐变，避免对快照层重复模糊/染色 */
+  html.snapshot-mode .backdrop{ background:transparent !important;
+    backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }
+  html.snapshot-mode .backdrop::before,
+  html.snapshot-mode .backdrop::after,
+  html.snapshot-mode .backdrop .g3{ opacity:0 !important; }
+  /* 透明透视（背景透明度<100% 且无快照模糊）：桌面应清晰透出，禁用全屏 backdrop-filter，
+     桌面模糊统一交给 bgBlur 快照层；局部卡片/抽屉的玻璃模糊保留 */
+  html.see-through .backdrop{ backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }
+
   /* ---------- 图标字体 ---------- */
   .tile .label{ font-family: var(--icon-font, system-ui, sans-serif);
     font-size: var(--icon-font-size, 12px);
@@ -599,6 +622,9 @@
 </style>
 </head>
 <body data-page-node-id="1QQnfMEknKu9NII3cumZvu">
+
+<!-- 桌面快照模糊层：bgBlur>0 时显示后端抓来的桌面位图，由 CSS 做连续可调高斯模糊；inset 外扩避免 blur 边缘漏空 -->
+<div id="bgSnapshotLayer"></div>
 
 <div class="backdrop" data-page-node-id="1lIUsXK3GOUNLDaOsF8Fc4"><div class="g3" data-page-node-id="y532mMRiUyujjptOQJ5GpN"></div><div class="noise" data-page-node-id="JgBdhIV0clacJqycRPKx9s"></div><div id="bgImageLayer"></div></div>
 
@@ -849,8 +875,26 @@ if (HOSTED) {
       const p = __pending.get(msg.id);
       __pending.delete(msg.id);
       msg.ok === false ? p.reject(new Error(msg.msg || "操作失败")) : p.resolve(msg.data);
+    } else if (msg && msg.op === "bgSnapshot") {
+      // 后端推送新的桌面快照：预加载完成后刷新模糊背景层
+      applyBgSnapshot(msg.t);
     }
   });
+}
+
+/* 桌面快照模糊层：加载后端抓来的桌面位图，onload 后再显示，避免破图/半截 */
+function applyBgSnapshot(t) {
+  const layer = document.getElementById("bgSnapshotLayer");
+  if (!layer) return;
+  const url = `https://nova.app/bg-snapshot.png?t=${t == null ? Date.now() : t}`;
+  const img = new Image();
+  img.onload = () => {
+    layer.style.backgroundImage = `url("${url}")`;
+    window.__snapshotReady = true;
+    applyStyle();
+  };
+  img.onerror = () => { console.warn("桌面快照加载失败", url); };
+  img.src = url;
 }
 
 function novaSend(op, data) {
@@ -1103,34 +1147,83 @@ function applyStyle() {
   // 背景模糊：0-100 映射到 0-30px，仅在背景透明时有效
   const bgBlur = Math.max(0, Math.min(100, s.bgBlur ?? 0));
   root.style.setProperty("--bg-blur", `${(bgBlur / 100 * 30).toFixed(1)}px`);
-  // 背景模糊时亚克力效果已提供色调，降低WebView2背景alpha让模糊桌面透出
-  const winOpacity = winOpacityRaw * (1 - (bgBlur / 100) * 0.6);
-  // 液态玻璃模式下，背景透明度<100%时降低.backdrop的opacity，让桌面透出
+  // 背景透明度只由 windowOpacity 控制；模糊深浅由 tint 染色层随 bgBlur 线性渐变
+  const winOpacity = winOpacityRaw;
+  const transparent = winOpacity < 0.999;  // 是否需要透出桌面
+  // 缩放 rgba 颜色 alpha 的辅助函数
+  const scaleRgba = (r, g, b, a) => `rgba(${r},${g},${b},${(a * winOpacity).toFixed(3)})`;
+  const snapLayer = document.getElementById("bgSnapshotLayer");
   const backdrop = document.querySelector(".backdrop");
   if (backdrop) {
-    if (bgStyle === "liquid" && enabled && winOpacity < 1) {
-      backdrop.style.opacity = winOpacity.toFixed(2);
-    } else {
-      backdrop.style.opacity = "1";
-    }
+    // 透明模式下不用整体 opacity（会连光晕一起压暗），而是动态重绘背景渐变
+    backdrop.style.opacity = "1";
+    backdrop.style.background = "";  // 先清空，交回 CSS；下面按需覆盖
   }
-  if (enabled) {
+  // 透明透视时禁用 .backdrop 全屏 backdrop-filter，桌面清晰度统一由 bgBlur 快照层控制
+  root.classList.toggle("see-through", transparent);
+
+  if (bgBlur > 0) {
+    /* ===== 桌面快照模糊模式：后端抓窗口背后桌面成位图，前端 CSS 高斯模糊，半径连续可调 ===== */
+    root.classList.add("snapshot-mode");
+    const R = bgBlur / 100 * 40;   // 0~40px 真·高斯模糊半径，随滑块连续变化
+    if (snapLayer) {
+      // 降饱和到 60% 做出毛玻璃发灰质感；浅色模式额外提亮，呈现亮白磨砂
+      const tone = isLight ? " brightness(1.12)" : "";
+      snapLayer.style.filter = `blur(${R.toFixed(1)}px) saturate(0.6)${tone}`;
+      snapLayer.style.opacity = winOpacityRaw.toFixed(3);                 // 透明度直接用背景透明度数值
+      if (window.__snapshotReady) { snapLayer.style.visibility = "visible"; }
+    }
+    if (backdrop) backdrop.style.background = "transparent";
+    root.style.setProperty("--bg-base", "rgba(0,0,0,0)");
+    // 面板半透明，让模糊桌面透出且内容可读
+    root.style.setProperty("--panel", isLight ? "rgba(255,255,255,0.62)" : "rgba(28,28,40,0.55)");
+    root.style.setProperty("--glass-blur", "0px");
+    root.classList.add("glass-on");
+    root.classList.remove("glass-off");
+    // 首次进入、尚无快照图时请求后端抓一次屏
+    if (HOSTED && !window.__snapshotReady) {
+      try { novaSend("bgSnapshot", {}); } catch (_) {}
+      // 兜底：后端推送丢失或本次抓屏失败时，尝试直接加载磁盘上已有的快照文件（无文件则 onerror，保持透明不破图）
+      if (!window.__snapFallbackScheduled) {
+        window.__snapFallbackScheduled = true;
+        setTimeout(() => {
+          if (!window.__snapshotReady && (state.settings.bgBlur ?? 0) > 0) { applyBgSnapshot(Date.now()); }
+        }, 450);
+      }
+    }
+  } else if (enabled) {
+    root.classList.remove("snapshot-mode");
+    if (snapLayer) { snapLayer.style.visibility = "hidden"; snapLayer.style.opacity = "0"; }
     const alpha = (0.78 - (intensity / 100) * 0.55) * winOpacity;
     const blur = (intensity / 100) * 24;
     if (bgStyle === "liquid") {
       if (isLight) {
-        root.style.setProperty("--bg-base", `rgba(240,245,255,${(alpha * 0.7).toFixed(3)})`);
+        if (transparent && backdrop) {
+          backdrop.style.background =
+            `radial-gradient(ellipse 80% 60% at 20% 10%, rgba(108,99,255,${(0.15*winOpacity).toFixed(3)}), transparent 60%),` +
+            `radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,180,255,${(0.12*winOpacity).toFixed(3)}), transparent 55%),` +
+            `radial-gradient(ellipse 70% 60% at 50% 90%, rgba(255,120,180,${(0.10*winOpacity).toFixed(3)}), transparent 60%),` +
+            `linear-gradient(135deg, ${scaleRgba(240,245,255,0.85)}, ${scaleRgba(255,255,255,0.92)})`;
+        }
+        root.style.setProperty("--bg-base", transparent ? "rgba(240,245,255,0)" : `rgba(240,245,255,${(alpha * 0.7).toFixed(3)})`);
         root.style.setProperty("--panel", `rgba(255,255,255,${(alpha * 0.6 + 0.05 * winOpacity).toFixed(3)})`);
       } else {
-        root.style.setProperty("--bg-base", `rgba(20,20,40,${(alpha * 0.7).toFixed(3)})`);
+        if (transparent && backdrop) {
+          backdrop.style.background =
+            `radial-gradient(ellipse 80% 60% at 20% 10%, rgba(108,99,255,${(0.25*winOpacity).toFixed(3)}), transparent 60%),` +
+            `radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,200,255,${(0.18*winOpacity).toFixed(3)}), transparent 55%),` +
+            `radial-gradient(ellipse 70% 60% at 50% 90%, rgba(255,100,200,${(0.15*winOpacity).toFixed(3)}), transparent 60%),` +
+            `linear-gradient(135deg, ${scaleRgba(30,30,50,0.85)}, ${scaleRgba(15,15,30,0.9)})`;
+        }
+        root.style.setProperty("--bg-base", transparent ? "rgba(20,20,40,0)" : `rgba(20,20,40,${(alpha * 0.7).toFixed(3)})`);
         root.style.setProperty("--panel", `rgba(30,30,55,${(alpha * 0.6 + 0.05 * winOpacity).toFixed(3)})`);
       }
     } else {
       if (isLight) {
-        root.style.setProperty("--bg-base", `rgba(238,240,245,${alpha.toFixed(3)})`);
+        root.style.setProperty("--bg-base", transparent ? "rgba(238,240,245,0)" : `rgba(238,240,245,${alpha.toFixed(3)})`);
         root.style.setProperty("--panel", `rgba(255,255,255,${(alpha + 0.06 * winOpacity).toFixed(3)})`);
       } else {
-        root.style.setProperty("--bg-base", `rgba(16,16,20,${alpha.toFixed(3)})`);
+        root.style.setProperty("--bg-base", transparent ? "rgba(16,16,20,0)" : `rgba(16,16,20,${alpha.toFixed(3)})`);
         root.style.setProperty("--panel", `rgba(26,26,32,${(alpha + 0.06 * winOpacity).toFixed(3)})`);
       }
     }
@@ -1138,12 +1231,14 @@ function applyStyle() {
     root.classList.add("glass-on");
     root.classList.remove("glass-off");
   } else {
+    root.classList.remove("snapshot-mode");
+    if (snapLayer) { snapLayer.style.visibility = "hidden"; snapLayer.style.opacity = "0"; }
     if (isLight) {
-      root.style.setProperty("--bg-base", `rgba(238,240,245,${winOpacity.toFixed(2)})`);
-      root.style.setProperty("--panel", `rgba(255,255,255,${winOpacity.toFixed(2)})`);
+      root.style.setProperty("--bg-base", `rgba(238,240,245,${winOpacity.toFixed(3)})`);
+      root.style.setProperty("--panel", `rgba(255,255,255,${winOpacity.toFixed(3)})`);
     } else {
-      root.style.setProperty("--bg-base", `rgba(16,16,20,${winOpacity.toFixed(2)})`);
-      root.style.setProperty("--panel", `rgba(26,26,32,${winOpacity.toFixed(2)})`);
+      root.style.setProperty("--bg-base", `rgba(16,16,20,${winOpacity.toFixed(3)})`);
+      root.style.setProperty("--panel", `rgba(26,26,32,${winOpacity.toFixed(3)})`);
     }
     root.style.setProperty("--glass-blur", "0px");
     root.classList.add("glass-off");

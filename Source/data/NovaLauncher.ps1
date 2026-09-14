@@ -227,8 +227,117 @@ public static class DwmGlass {
     public const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
     public const int DWMSBT_MAINWINDOW = 2;
     public const int DWMSBT_TRANSIENTWINDOW = 3;
+    public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     [DllImport("dwmapi.dll")] public static extern int DwmExtendFrameIntoClientArea(IntPtr h, ref MARGINS m);
     [StructLayout(LayoutKind.Sequential)] public struct MARGINS { public int L, T, R, B; }
+    // 阻塞到下一次 DWM 合成提交：隐藏本窗口后调用，可确保抓屏时桌面已重绘（比固定 Sleep 可靠）
+    [DllImport("dwmapi.dll")] public static extern void DwmFlush();
+
+    // 旧版亚克力 API：可设置色调为完全透明，只保留模糊
+    [DllImport("user32.dll")] public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
+    [StructLayout(LayoutKind.Sequential)] public struct AccentPolicy {
+        public int AccentState;
+        public int AccentFlags;
+        public uint GradientColor;
+        public int AnimationId;
+    }
+    [StructLayout(LayoutKind.Sequential)] public struct WindowCompositionAttributeData {
+        public int Attribute;
+        public IntPtr Data;
+        public int SizeOfData;
+    }
+    public const int WCA_ACCENT_POLICY = 19;
+    public const int ACCENT_DISABLED = 0;
+    public const int ACCENT_ENABLE_BLURBEHIND = 3;
+    public const int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
+
+    public static int SetAcrylicBlur(IntPtr hwnd, uint gradientColor) {
+        AccentPolicy accent = new AccentPolicy();
+        accent.AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND;
+        accent.AccentFlags = 2;
+        accent.GradientColor = gradientColor;
+        accent.AnimationId = 0;
+        IntPtr ptr = Marshal.AllocHGlobal(Marshal.SizeOf(accent));
+        Marshal.StructureToPtr(accent, ptr, false);
+        WindowCompositionAttributeData data = new WindowCompositionAttributeData();
+        data.Attribute = WCA_ACCENT_POLICY;
+        data.Data = ptr;
+        data.SizeOfData = Marshal.SizeOf(accent);
+        int hr = SetWindowCompositionAttribute(hwnd, ref data);
+        Marshal.FreeHGlobal(ptr);
+        return hr;
+    }
+    public static int SetBlurBehind(IntPtr hwnd, uint gradientColor) {
+        AccentPolicy accent = new AccentPolicy();
+        accent.AccentState = ACCENT_ENABLE_BLURBEHIND;
+        accent.AccentFlags = 2;
+        accent.GradientColor = gradientColor;
+        accent.AnimationId = 0;
+        IntPtr ptr = Marshal.AllocHGlobal(Marshal.SizeOf(accent));
+        Marshal.StructureToPtr(accent, ptr, false);
+        WindowCompositionAttributeData data = new WindowCompositionAttributeData();
+        data.Attribute = WCA_ACCENT_POLICY;
+        data.Data = ptr;
+        data.SizeOfData = Marshal.SizeOf(accent);
+        int hr = SetWindowCompositionAttribute(hwnd, ref data);
+        Marshal.FreeHGlobal(ptr);
+        return hr;
+    }
+    public static void DisableAcrylicBlur(IntPtr hwnd) {
+        AccentPolicy accent = new AccentPolicy();
+        accent.AccentState = ACCENT_DISABLED;
+        accent.AccentFlags = 0;
+        accent.GradientColor = 0;
+        accent.AnimationId = 0;
+        IntPtr ptr = Marshal.AllocHGlobal(Marshal.SizeOf(accent));
+        Marshal.StructureToPtr(accent, ptr, false);
+        WindowCompositionAttributeData data = new WindowCompositionAttributeData();
+        data.Attribute = WCA_ACCENT_POLICY;
+        data.Data = ptr;
+        data.SizeOfData = Marshal.SizeOf(accent);
+        SetWindowCompositionAttribute(hwnd, ref data);
+        Marshal.FreeHGlobal(ptr);
+    }
+}
+'@
+}
+
+# ---------------------------------------------------------------------------
+# 桌面抓屏：抓取窗口背后那块屏幕（物理像素），保存为 PNG，供前端做高斯模糊
+# 模糊半径由前端 CSS filter 控制（连续可调），后端只负责抓真实桌面像素
+# ---------------------------------------------------------------------------
+if (-not ('NovaCapture' -as [type])) {
+    Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Drawing;
+public static class NovaCapture {
+    [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hwnd, IntPtr dc);
+    [DllImport("gdi32.dll")] public static extern bool BitBlt(IntPtr dst, int x, int y, int w, int hgt, IntPtr src, int sx, int sy, int rop);
+    [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int w, int hgt);
+    [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+    [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr obj);
+    public const int SRCCOPY = 0x00CC0020;
+    // 抓取虚拟屏幕上 (x,y,w,h) 区域（物理像素，支持多屏负坐标），存为 PNG；BitBlt 失败返回 false 且不写文件
+    public static bool CaptureRect(int x, int y, int w, int hgt, string path) {
+        IntPtr sdc = GetDC(IntPtr.Zero);
+        if (sdc == IntPtr.Zero) return false;
+        IntPtr mdc = CreateCompatibleDC(sdc);
+        IntPtr bmp = CreateCompatibleBitmap(sdc, w, hgt);
+        IntPtr old = SelectObject(mdc, bmp);
+        bool ok = BitBlt(mdc, 0, 0, w, hgt, sdc, x, y, SRCCOPY);
+        SelectObject(mdc, old);
+        if (ok) {
+            using (Bitmap b = Image.FromHbitmap(bmp)) {
+                b.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+            }
+        }
+        DeleteObject(bmp); DeleteDC(mdc); ReleaseDC(IntPtr.Zero, sdc);
+        return ok;
+    }
 }
 '@
 }
@@ -292,30 +401,131 @@ function Disable-NovaGlass([IntPtr]$hwnd) {
 
 # 根据 glassEnabled 和 windowOpacity 设置 DWM 背景
 # windowOpacity < 100 时，即使禁用毛玻璃也保持透明框架，让桌面透出来
-function Set-NovaDwmBackground([IntPtr]$hwnd, [bool]$glassEnabled, [int]$windowOpacity, [int]$bgBlur = 0) {
-    if ($windowOpacity -lt 100) {
-        # 背景透明度<100%时，使用透明框架让桌面透出
+# bgBlur > 0 时同样走透明框架，但不启用系统亚克力（模糊半径不可调），
+#           改为前端用“桌面抓屏快照 + CSS 高斯模糊”实现连续可调的模糊
+function Set-NovaDwmBackground([IntPtr]$hwnd, [bool]$glassEnabled, [int]$windowOpacity, [int]$bgBlur = 0, [bool]$isDark = $true) {
+    if ($windowOpacity -lt 100 -or $bgBlur -gt 0) {
+        # 透明框架：bgBlur=0 桌面清晰透出；bgBlur>0 由前端桌面快照模糊层覆盖
         $m = New-Object DwmGlass+MARGINS
         $m.L = -1; $m.T = -1; $m.R = -1; $m.B = -1
         [DwmGlass]::DwmExtendFrameIntoClientArea($hwnd, [ref]$m) | Out-Null
+        # 设置标题栏色调为深色或浅色模式
+        $darkVal = if ($isDark) { 1 } else { 0 }
+        [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_USE_IMMERSIVE_DARK_MODE, [ref]$darkVal, 4) | Out-Null
+        # 统一关闭系统亚克力（其模糊半径系统锁死且强制灰白染色），模糊交给前端快照层
+        [DwmGlass]::DisableAcrylicBlur($hwnd)
+        $none = 1  # DWMSBT_NONE
+        [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$none, 4) | Out-Null
         if ($bgBlur -gt 0) {
-            # 背景模糊>0时，使用亚克力效果，Windows自动模糊背后的桌面
-            $val = [DwmGlass]::DWMSBT_TRANSIENTWINDOW
-            $hr = [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$val, 4)
-            $style = if ($glassEnabled) { "毛玻璃+亚克力模糊" } else { "亚克力模糊" }
-            Write-Log "透明框架已启用（背景透明度 $windowOpacity%，背景模糊 $bgBlur%，$style，hr=$hr）"
+            Write-Log "透明框架已启用（背景透明度 $windowOpacity%，背景模糊 $bgBlur%，桌面快照模糊模式，dark=$darkVal）"
         } else {
-            # 背景模糊=0时，纯透明，桌面清晰透出
-            $val = 1  # DWMSBT_NONE
-            $hr = [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$val, 4)
             $style = if ($glassEnabled) { "毛玻璃+透明" } else { "透明" }
-            Write-Log "透明框架已启用（背景透明度 $windowOpacity%，$style，hr=$hr）"
+            Write-Log "透明框架已启用（背景透明度 $windowOpacity%，$style）"
         }
     } elseif ($glassEnabled) {
+        [DwmGlass]::DisableAcrylicBlur($hwnd)
         Enable-NovaGlass $hwnd
     } else {
+        [DwmGlass]::DisableAcrylicBlur($hwnd)
         Disable-NovaGlass $hwnd
     }
+}
+
+# ---------------------------------------------------------------------------
+# 背景快照：抓窗口背后桌面 → PNG（前端做高斯模糊）。静止快照，不实时跟随
+# 流程：隐藏 WebView2（露出透明 Form 后的桌面）→ 等一帧 → BitBlt 抓 → 恢复 → 通知前端
+# ---------------------------------------------------------------------------
+$script:BgSnapDebounce = $null   # 移动/缩放/设置变化后的防抖
+$script:BgSnapCapture  = $null   # 隐藏 WebView2 后延迟抓屏
+
+function Initialize-NovaBgSnapshotTimers {
+    if ($null -eq $script:BgSnapDebounce) {
+        $script:BgSnapDebounce = New-Object System.Windows.Forms.Timer
+        $script:BgSnapDebounce.Interval = 260
+        $script:BgSnapDebounce.Add_Tick({
+            $script:BgSnapDebounce.Stop()
+            Start-NovaBgSnapshotCapture
+        })
+    }
+    if ($null -eq $script:BgSnapCapture) {
+        $script:BgSnapCapture = New-Object System.Windows.Forms.Timer
+        $script:BgSnapCapture.Interval = 170
+        $script:BgSnapCapture.Add_Tick({
+            $script:BgSnapCapture.Stop()
+            Invoke-NovaBgSnapshotGrab
+        })
+    }
+}
+
+# 请求一次背景快照（带防抖）。bgBlur<=0 时不抓
+function Request-NovaBgSnapshot([int]$delay = 260) {
+    try {
+        if (-not $script:WebController -or -not $script:WebView) { return }
+        $s = Get-Settings
+        if ([int]$s.bgBlur -le 0) { return }
+        Initialize-NovaBgSnapshotTimers
+        $script:BgSnapCapture.Stop()
+        $script:BgSnapDebounce.Stop()
+        if ($delay -le 0) { Start-NovaBgSnapshotCapture }
+        else {
+            $script:BgSnapDebounce.Interval = $delay
+            $script:BgSnapDebounce.Start()
+        }
+    } catch { Write-Log "请求背景快照失败: $($_.Exception.Message)" }
+}
+
+# 第一步：隐藏整个窗口（Form + WebView2），露出真实桌面，等待 DWM 重绘一帧
+function Start-NovaBgSnapshotCapture {
+    if (-not $script:WebController) { return }
+    try {
+        $s = Get-Settings
+        if ([int]$s.bgBlur -le 0) { return }
+        # 最小化（GetWindowRect 为 -32000 无效坐标）或不可见时不抓
+        if ([NovaWindow]::IsIconic($form.Handle) -or -not [NovaWindow]::IsWindowVisible($form.Handle)) { return }
+        # 隐藏前记录窗口物理矩形（隐藏后据此抓原位桌面）
+        $r0 = New-Object NovaWindow+RECT
+        [NovaWindow]::GetWindowRect($form.Handle, [ref]$r0) | Out-Null
+        if (($r0.R - $r0.L) -le 0 -or ($r0.B - $r0.T) -le 0) { return }
+        $script:BgSnapRect = $r0
+        # SW_HIDE 整个窗口，露出窗口背后真实桌面（仅隐藏 WebView2 会露出 Form 深色底，抓到黑色）
+        [NovaWindow]::ShowWindow($form.Handle, 0) | Out-Null
+        Initialize-NovaBgSnapshotTimers
+        $script:BgSnapCapture.Stop()
+        $script:BgSnapCapture.Interval = 120
+        $script:BgSnapCapture.Start()
+    } catch { Write-Log "快照隐藏窗口失败: $($_.Exception.Message)" }
+}
+
+# 第二步：BitBlt 抓屏 → 恢复窗口显示并前置 → 推送快照刷新通知给前端
+function Invoke-NovaBgSnapshotGrab {
+    if (-not $script:WebController) { return }
+    $path = Join-Path $DataDir 'bg-snapshot.png'
+    $w = 0; $h = 0; $grabbed = $false
+    try {
+        $r = $script:BgSnapRect
+        if ($null -eq $r) { $r = New-Object NovaWindow+RECT; [NovaWindow]::GetWindowRect($form.Handle, [ref]$r) | Out-Null }
+        $w = $r.R - $r.L; $h = $r.B - $r.T
+        if ($w -gt 0 -and $h -gt 0) {
+            # 泵消息 + 等待 DWM 合成两帧，确保隐藏后桌面已完成重绘，避免抓到本窗口残留
+            try { [System.Windows.Forms.Application]::DoEvents() } catch {}
+            try { [DwmGlass]::DwmFlush(); [DwmGlass]::DwmFlush() } catch { Start-Sleep -Milliseconds 80 }
+            $grabbed = [NovaCapture]::CaptureRect($r.L, $r.T, $w, $h, $path)
+            if (-not $grabbed) { Write-Log "快照抓屏失败：BitBlt 未成功（屏幕 DC 不可读），保留旧快照" }
+        }
+    } catch { Write-Log "快照抓屏异常: $($_.Exception.Message)" }
+    finally {
+        try { [NovaWindow]::ShowWindow($form.Handle, 5) | Out-Null } catch {}   # SW_SHOW
+        try { [NovaWindow]::ForceForeground($form.Handle) | Out-Null } catch {}
+        try { $script:WebController.IsVisible = $true } catch {}
+    }
+    try {
+        if ($grabbed -and (Test-Path $path) -and $script:WebView) {
+            $t = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+            $json = @{ op = 'bgSnapshot'; t = $t; w = $w; h = $h } | ConvertTo-Json -Compress
+            $script:WebView.PostWebMessageAsJson($json)
+            Write-Log "背景快照已更新 (${w}x${h})"
+        }
+    } catch { Write-Log "快照通知前端失败: $($_.Exception.Message)" }
 }
 
 # ---------------------------------------------------------------------------
@@ -933,6 +1143,13 @@ function Set-NovaWindowLayout([switch]$Windowed) {
 
 $form.Add_Resize({
     if ($script:WebController) { $script:WebController.Bounds = $form.ClientRectangle }
+    # 桌面快照模糊模式下，窗口尺寸变化停下后重新抓屏（防抖）
+    Request-NovaBgSnapshot 280
+})
+
+$form.Add_LocationChanged({
+    # 桌面快照模糊模式下，窗口移动停下后重新抓屏（防抖）
+    Request-NovaBgSnapshot 280
 })
 
 # ---------------------------------------------------------------------------
@@ -999,6 +1216,7 @@ function Step-NovaWebViewInit {
                     $script:InitStep = 3
                     Write-Log "WebView2 初始化完成"
                     $script:PreheatQueue = New-IconPreheatQueue
+                    Initialize-NovaDebugHook
                 }
             }
         }
@@ -1010,6 +1228,57 @@ function Step-NovaWebViewInit {
 function Register-NovaVirtualHost {
     $kind = [Microsoft.Web.WebView2.Core.CoreWebView2HostResourceAccessKind]::Allow
     $script:WebView.SetVirtualHostNameToFolderMapping('nova.app', $DataDir, $kind)
+}
+
+# ---------------------------------------------------------------------------
+# 调试钩子（仅当 DataDir\DEBUG.flag 存在时启用；验证用，正式发布不创建该文件）
+# 写 JS 到 debug-js.txt -> 后端用 CDP Runtime.evaluate 执行；内容为 __SHOT__ 则页面截图存 debug-shot.png
+# ---------------------------------------------------------------------------
+function Invoke-NovaCdp([string]$method, [string]$paramsJson) {
+    # 在 UI 线程上边泵消息边等待，避免 .GetResult() 死锁，也不跨 PowerShell runspace
+    $task = $script:WebView.CallDevToolsProtocolMethodAsync($method, $paramsJson)
+    $guard = 0
+    while (-not $task.IsCompleted -and $guard -lt 600) {
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 15
+        $guard++
+    }
+    if (-not $task.IsCompleted) { throw "CDP 调用超时: $method" }
+    if ($task.IsFaulted) { throw $task.Exception.InnerException.Message }
+    return [string]$task.Result
+}
+
+function Initialize-NovaDebugHook {
+    if (-not (Test-Path (Join-Path $DataDir 'DEBUG.flag'))) { return }
+    try {
+        $script:DebugTimer = New-Object System.Windows.Forms.Timer
+        $script:DebugTimer.Interval = 700
+        $script:DebugTimer.Add_Tick({
+            $jsFile = Join-Path $DataDir 'debug-js.txt'
+            if (-not (Test-Path $jsFile)) { return }
+            $js = ''
+            try { $js = [IO.File]::ReadAllText($jsFile) } catch { return }
+            try { Remove-Item $jsFile -Force -ErrorAction SilentlyContinue } catch {}
+            if ([string]::IsNullOrWhiteSpace($js)) { return }
+            try {
+                if ($js.Trim() -eq '__SHOT__') {
+                    $raw = Invoke-NovaCdp 'Page.captureScreenshot' '{"format":"png","captureBeyondViewport":true}'
+                    $obj = $raw | ConvertFrom-Json
+                    $shotPath = Join-Path $DataDir 'debug-shot.png'
+                    [IO.File]::WriteAllBytes($shotPath, [Convert]::FromBase64String([string]$obj.data))
+                    Write-Log "DEBUG 截图已保存: $shotPath"
+                } else {
+                    $p = @{ expression = $js; returnByValue = $true } | ConvertTo-Json -Depth 5 -Compress
+                    $raw = Invoke-NovaCdp 'Runtime.evaluate' $p
+                    $outFile = Join-Path $DataDir 'debug-result.txt'
+                    [IO.File]::WriteAllText($outFile, [string]$raw, [Text.Encoding]::UTF8)
+                    Write-Log "DEBUG JS 执行完成"
+                }
+            } catch { Write-Log "DEBUG 钩子失败: $($_.Exception.Message)" }
+        })
+        $script:DebugTimer.Start()
+        Write-Log "DEBUG 调试钩子已启用"
+    } catch { Write-Log "DEBUG 钩子初始化失败: $($_.Exception.Message)" }
 }
 
 # ---------------------------------------------------------------------------
@@ -1198,7 +1467,7 @@ function Invoke-NovaApi([string]$op, $data) {
             $k = [string]$data.k; $v = $data.v; $s = Get-Settings
             if ($k -eq 'all') {
                 $s = $v | ConvertTo-Json -Depth 10 | ConvertFrom-Json
-                Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur)
+                Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light')
                 Save-Settings $s
                 return [pscustomobject]@{ ok = $true; settings = $s }
             }
@@ -1206,20 +1475,23 @@ function Invoke-NovaApi([string]$op, $data) {
             switch ($k) {
                 'iconSize' { $n = 64; if ([int]::TryParse($v, [ref]$n)) { $s.iconSize = [Math]::Max(36, [Math]::Min(160, $n)) } }
                 'cols'     { $n = 6;  if ([int]::TryParse($v, [ref]$n)) { $s.cols     = [Math]::Max(3,  [Math]::Min(12, $n)) } }
-                'theme'    { if ($v -eq 'light' -or $v -eq 'dark') { $s.theme = $v } }
+                'theme'    { if ($v -eq 'light' -or $v -eq 'dark') { $s.theme = $v; Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light') } }
                 'glassEnabled' {
                     $s.glassEnabled = ($v -eq 'true' -or $v -eq 'True')
-                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur)
+                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light')
                 }
                 'glassIntensity' { $n = 50; if ([int]::TryParse($v, [ref]$n)) { $s.glassIntensity = [Math]::Max(0, [Math]::Min(100, $n)) } }
                 'bgStyle' { if ($v -eq 'mica' -or $v -eq 'liquid') { $s.bgStyle = $v } }
                 'windowOpacity' {
                     $n = 100; if ([int]::TryParse($v, [ref]$n)) { $s.windowOpacity = [Math]::Max(20, [Math]::Min(100, $n)) }
-                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur)
+                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light')
                 }
                 'bgBlur' {
+                    $oldBlur = [int]$s.bgBlur
                     $n = 0; if ([int]::TryParse($v, [ref]$n)) { $s.bgBlur = [Math]::Max(0, [Math]::Min(100, $n)) }
-                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur)
+                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light')
+                    # 从无模糊切到有模糊：抓一次桌面快照；>0 区间内拖动只改前端模糊半径，不重抓
+                    if ($oldBlur -le 0 -and [int]$s.bgBlur -gt 0) { Request-NovaBgSnapshot 120 }
                 }
                 'bgImageEnabled' { $s.bgImageEnabled = ($v -eq 'true' -or $v -eq 'True') }
                 'bgImagePath' { $s.bgImagePath = $v }
@@ -1231,6 +1503,11 @@ function Invoke-NovaApi([string]$op, $data) {
             }
             Save-Settings $s
             return [pscustomobject]@{ ok = $true; settings = $s }
+        }
+        'bgSnapshot' {
+            # 前端请求重新抓取桌面快照（页面加载后兜底 / 手动刷新）
+            Request-NovaBgSnapshot 80
+            return [pscustomobject]@{ ok = $true }
         }
         'reveal' {
             $tgt = [string]$data.p
@@ -1326,7 +1603,7 @@ try {
 
         if ($script:InitStep -eq 0) {
             Set-NovaWindowLayout -Windowed:$script:WantWindowed
-            Set-NovaDwmBackground $form.Handle $settings.glassEnabled ([int]$settings.windowOpacity) ([int]$settings.bgBlur)
+            Set-NovaDwmBackground $form.Handle $settings.glassEnabled ([int]$settings.windowOpacity) ([int]$settings.bgBlur) ($settings.theme -ne 'light')
             Start-NovaWebViewInit
             $preheatTimer.Start()
         }
