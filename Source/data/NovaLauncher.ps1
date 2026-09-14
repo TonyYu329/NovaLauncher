@@ -217,6 +217,41 @@ public static class DwmGlass {
 '@
 }
 
+# 任务栏图标：AppUserModelID + WM_SETICON 强制设置
+if (-not ('NovaTaskbar' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class NovaTaskbar {
+    [DllImport("shell32.dll")] public static extern int SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string AppID);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern IntPtr LoadImage(IntPtr hInst, string lpszName, uint uType, int cx, int cy, uint fuLoad);
+    [DllImport("user32.dll")] public static extern bool DestroyIcon(IntPtr hIcon);
+    public const uint WM_SETICON = 0x0080;
+    public static readonly IntPtr ICON_SMALL = (IntPtr)0;
+    public static readonly IntPtr ICON_BIG = (IntPtr)1;
+    public const uint IMAGE_ICON = 1;
+    public const uint LR_LOADFROMFILE = 0x00000010;
+    public const uint LR_DEFAULTSIZE = 0x00000040;
+}
+'@
+}
+
+function Set-NovaTaskbarIcon([string]$iconPath) {
+    # 设置 AppUserModelID，让 Windows 把本进程识别为独立应用
+    [NovaTaskbar]::SetCurrentProcessExplicitAppUserModelID("NovaLauncher.App") | Out-Null
+    # 加载 16px 小图标和 32px 大图标
+    $hSmall = [NovaTaskbar]::LoadImage([IntPtr]::Zero, $iconPath, [NovaTaskbar]::IMAGE_ICON, 16, 16, [NovaTaskbar]::LR_LOADFROMFILE)
+    $hBig = [NovaTaskbar]::LoadImage([IntPtr]::Zero, $iconPath, [NovaTaskbar]::IMAGE_ICON, 32, 32, [NovaTaskbar]::LR_LOADFROMFILE)
+    if ($hSmall -ne [IntPtr]::Zero) {
+        [NovaTaskbar]::SendMessage($form.Handle, [NovaTaskbar]::WM_SETICON, [NovaTaskbar]::ICON_SMALL, $hSmall) | Out-Null
+    }
+    if ($hBig -ne [IntPtr]::Zero) {
+        [NovaTaskbar]::SendMessage($form.Handle, [NovaTaskbar]::WM_SETICON, [NovaTaskbar]::ICON_BIG, $hBig) | Out-Null
+    }
+    Write-Log "任务栏图标已设置: $iconPath (small=$hSmall big=$hBig)"
+}
+
 function Enable-NovaGlass([IntPtr]$hwnd) {
     $m = New-Object DwmGlass+MARGINS
     $m.L = -1; $m.T = -1; $m.R = -1; $m.B = -1
@@ -848,6 +883,8 @@ $form.MinimizeBox     = $false
 $form.BackColor       = [System.Drawing.Color]::FromArgb(16, 16, 20)
 $form.Icon            = New-Object System.Drawing.Icon((Join-Path $DataDir 'nova-logo.ico'))
 $form.Text            = 'Nova Launcher'
+# 强制设置任务栏图标（AppUserModelID + WM_SETICON）
+Set-NovaTaskbarIcon (Join-Path $DataDir 'nova-logo.ico')
 
 $form.NovaDpiChanged = {
     if ($script:WebController) { $script:WebController.Bounds = $form.ClientRectangle }

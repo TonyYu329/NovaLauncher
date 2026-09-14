@@ -1103,6 +1103,15 @@ function applyStyle() {
   // 背景模糊：0-100 映射到 0-30px，仅在背景透明时有效
   const bgBlur = Math.max(0, Math.min(100, s.bgBlur ?? 0));
   root.style.setProperty("--bg-blur", `${(bgBlur / 100 * 30).toFixed(1)}px`);
+  // 液态玻璃模式下，背景透明度<100%时降低.backdrop的opacity，让桌面透出
+  const backdrop = document.querySelector(".backdrop");
+  if (backdrop) {
+    if (bgStyle === "liquid" && enabled && winOpacity < 1) {
+      backdrop.style.opacity = winOpacity.toFixed(2);
+    } else {
+      backdrop.style.opacity = "1";
+    }
+  }
   if (enabled) {
     const alpha = (0.78 - (intensity / 100) * 0.55) * winOpacity;
     const blur = (intensity / 100) * 24;
