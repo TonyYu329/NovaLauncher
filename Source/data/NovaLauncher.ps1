@@ -251,6 +251,9 @@ using System.Runtime.InteropServices;
 public class NovaForm : Form {
     public Action NovaDpiChanged;
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    public NovaForm() {
+        SetStyle(ControlStyles.SupportsTransparentBackColor, true);
+    }
     protected override void WndProc(ref Message m) {
         if (m.Msg == 0x02E0) {
             RECT rc = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
@@ -816,7 +819,8 @@ $form.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
 $form.ShowInTaskbar   = $true
 $form.MaximizeBox     = $false
 $form.MinimizeBox     = $false
-$form.BackColor       = [System.Drawing.Color]::FromArgb(16, 16, 20)
+$form.AllowTransparency = $true
+$form.BackColor       = [System.Drawing.Color]::FromArgb(0, 0, 0, 0)
 $form.Icon            = New-Object System.Drawing.Icon((Join-Path $DataDir 'nova-logo.ico'))
 $form.Text            = 'Nova Launcher'
 
