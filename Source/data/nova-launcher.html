@@ -1140,12 +1140,24 @@ function applyBgImage() {
   document.querySelectorAll("#bgModeSeg button").forEach(b => b.classList.toggle("on", b.dataset.m === (s.bgImageMode || "cover")));
 }
 
+function invertColor(hex) {
+  hex = (hex || "#000000").replace('#', '');
+  if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+  const r = 255 - parseInt(hex.substr(0, 2), 16);
+  const g = 255 - parseInt(hex.substr(2, 2), 16);
+  const b = 255 - parseInt(hex.substr(4, 2), 16);
+  return '#' + [r, g, b].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
 function applyIconFont() {
   const s = state.settings;
   const root = document.documentElement;
+  const userColor = s.iconFontColor || "#ececf1";
+  // 浅色模式下自动使用反色，保证对比度
+  const displayColor = s.theme === "light" ? invertColor(userColor) : userColor;
   root.style.setProperty("--icon-font", s.iconFontFamily === "system" ? "system-ui, sans-serif" : s.iconFontFamily);
   root.style.setProperty("--icon-font-size", (s.iconFontSize || 12) + "px");
-  root.style.setProperty("--icon-font-color", s.iconFontColor || "#ececf1");
+  root.style.setProperty("--icon-font-color", displayColor);
   root.style.setProperty("--icon-font-weight", s.iconFontWeight || 600);
   const ff = $("iconFontFamily");
   if (ff) ff.value = s.iconFontFamily || "system";
@@ -1154,9 +1166,9 @@ function applyIconFont() {
   const fsv = $("iconFontSizeVal");
   if (fsv) fsv.textContent = s.iconFontSize || 12;
   const fc = $("iconFontColor");
-  if (fc) fc.value = s.iconFontColor || "#ececf1";
+  if (fc) fc.value = userColor;
   const fct = $("iconFontColorText");
-  if (fct) fct.value = s.iconFontColor || "#ececf1";
+  if (fct) fct.value = userColor;
   document.querySelectorAll("#iconWeightSeg button").forEach(b => b.classList.toggle("on", b.dataset.w == (s.iconFontWeight || 600)));
 }
 
