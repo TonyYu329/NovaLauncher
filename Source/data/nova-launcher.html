@@ -1093,7 +1093,7 @@ function applyStyle() {
   const isLight = s.theme === "light";
   const winOpacity = Math.max(20, Math.min(100, s.windowOpacity ?? 100)) / 100;
   const root = document.documentElement;
-  root.dataset.bgstyle = bgStyle;
+  root.dataset.bgstyle = enabled ? bgStyle : "none";
   if (enabled) {
     const alpha = (0.78 - (intensity / 100) * 0.55) * winOpacity;
     const blur = (intensity / 100) * 24;
