@@ -350,7 +350,7 @@
   .btn-sm{ padding:6px 12px; font-size:12px; }
 
   /* ---------- 液态玻璃样式 ---------- */
-  html[data-bgstyle="liquid"] .app-bg{
+  html[data-bgstyle="liquid"] .backdrop{
     background:
       radial-gradient(ellipse 80% 60% at 20% 10%, rgba(108,99,255,0.25), transparent 60%),
       radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,200,255,0.18), transparent 55%),
@@ -359,7 +359,7 @@
     backdrop-filter: blur(40px) saturate(1.8);
     -webkit-backdrop-filter: blur(40px) saturate(1.8);
   }
-  html[data-bgstyle="liquid"] .app-bg::before{
+  html[data-bgstyle="liquid"] .backdrop::before{
     content:""; position:absolute; inset:0;
     background:
       radial-gradient(circle at 30% 20%, rgba(255,255,255,0.08) 0%, transparent 40%),
@@ -377,6 +377,9 @@
     border-color: rgba(255,255,255,0.25);
     box-shadow: 0 12px 40px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.25);
   }
+  /* 液态玻璃下确保窗口控制按钮可见 */
+  html[data-bgstyle="liquid"] .wbtn{ color: var(--text-1); background: rgba(255,255,255,0.08); }
+  html[data-bgstyle="liquid"] .wbtn:hover{ background: rgba(255,255,255,0.16); }
 
   /* ---------- 背景图片 ---------- */
   #bgImageLayer{ position:absolute; inset:0; z-index:0; background-size:cover; background-position:center;

@@ -1,6 +1,6 @@
 ﻿{
-    "iconSize":  64,
-    "cols":  6,
+    "iconSize":  100,
+    "cols":  10,
     "theme":  "dark",
     "win":  {
                 "state":  "windowed"
