@@ -10,7 +10,7 @@
     "bgImageEnabled":  false,
     "bgImagePath":  "",
     "bgImageMode":  "cover",
-    "iconFontFamily":  "\u0027Microsoft YaHei\u0027, sans-serif",
+    "iconFontFamily":  "system",
     "iconFontSize":  14,
     "iconFontColor":  "#ffffff",
     "iconFontWeight":  600

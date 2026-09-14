@@ -1091,26 +1091,27 @@ function applyStyle() {
   const intensity = Math.max(0, Math.min(100, s.glassIntensity ?? 50));
   const bgStyle = s.bgStyle || "mica";
   const isLight = s.theme === "light";
+  const winOpacity = Math.max(20, Math.min(100, s.windowOpacity ?? 100)) / 100;
   const root = document.documentElement;
   root.dataset.bgstyle = bgStyle;
   if (enabled) {
-    const alpha = 0.78 - (intensity / 100) * 0.55;
+    const alpha = (0.78 - (intensity / 100) * 0.55) * winOpacity;
     const blur = (intensity / 100) * 24;
     if (bgStyle === "liquid") {
       if (isLight) {
         root.style.setProperty("--bg-base", `rgba(240,245,255,${(alpha * 0.7).toFixed(3)})`);
-        root.style.setProperty("--panel", `rgba(255,255,255,${(alpha * 0.6 + 0.05).toFixed(3)})`);
+        root.style.setProperty("--panel", `rgba(255,255,255,${(alpha * 0.6 + 0.05 * winOpacity).toFixed(3)})`);
       } else {
         root.style.setProperty("--bg-base", `rgba(20,20,40,${(alpha * 0.7).toFixed(3)})`);
-        root.style.setProperty("--panel", `rgba(30,30,55,${(alpha * 0.6 + 0.05).toFixed(3)})`);
+        root.style.setProperty("--panel", `rgba(30,30,55,${(alpha * 0.6 + 0.05 * winOpacity).toFixed(3)})`);
       }
     } else {
       if (isLight) {
         root.style.setProperty("--bg-base", `rgba(238,240,245,${alpha.toFixed(3)})`);
-        root.style.setProperty("--panel", `rgba(255,255,255,${(alpha + 0.06).toFixed(3)})`);
+        root.style.setProperty("--panel", `rgba(255,255,255,${(alpha + 0.06 * winOpacity).toFixed(3)})`);
       } else {
         root.style.setProperty("--bg-base", `rgba(16,16,20,${alpha.toFixed(3)})`);
-        root.style.setProperty("--panel", `rgba(26,26,32,${(alpha + 0.06).toFixed(3)})`);
+        root.style.setProperty("--panel", `rgba(26,26,32,${(alpha + 0.06 * winOpacity).toFixed(3)})`);
       }
     }
     root.style.setProperty("--glass-blur", `${blur.toFixed(1)}px`);
@@ -1118,11 +1119,11 @@ function applyStyle() {
     root.classList.remove("glass-off");
   } else {
     if (isLight) {
-      root.style.setProperty("--bg-base", "rgba(238,240,245,1)");
-      root.style.setProperty("--panel", "rgba(255,255,255,1)");
+      root.style.setProperty("--bg-base", `rgba(238,240,245,${winOpacity.toFixed(2)})`);
+      root.style.setProperty("--panel", `rgba(255,255,255,${winOpacity.toFixed(2)})`);
     } else {
-      root.style.setProperty("--bg-base", "rgba(16,16,20,1)");
-      root.style.setProperty("--panel", "rgba(26,26,32,1)");
+      root.style.setProperty("--bg-base", `rgba(16,16,20,${winOpacity.toFixed(2)})`);
+      root.style.setProperty("--panel", `rgba(26,26,32,${winOpacity.toFixed(2)})`);
     }
     root.style.setProperty("--glass-blur", "0px");
     root.classList.add("glass-off");
@@ -1144,8 +1145,8 @@ function applyStyle() {
 function applyWindowOpacity() {
   const s = state.settings;
   const opacity = Math.max(20, Math.min(100, s.windowOpacity ?? 100));
-  const backdrop = document.querySelector(".backdrop");
-  if (backdrop) backdrop.style.opacity = (opacity / 100).toFixed(2);
+  // 窗体透明度整合到 applyStyle() 中，影响 --bg-base 和 --panel 的 alpha
+  applyStyle();
   const range = $("windowOpacity");
   if (range) range.value = opacity;
   const val = $("opacityVal");
