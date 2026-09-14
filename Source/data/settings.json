@@ -7,12 +7,12 @@
     "glassIntensity":  50,
     "bgStyle":  "liquid",
     "windowOpacity":  100,
+    "bgBlur":  0,
     "bgImageEnabled":  false,
     "bgImagePath":  "",
     "bgImageMode":  "cover",
     "iconFontFamily":  "system",
     "iconFontSize":  14,
     "iconFontColor":  "#ffffff",
-    "iconFontWeight":  600,
-    "bgBlur":  0
+    "iconFontWeight":  600
 }

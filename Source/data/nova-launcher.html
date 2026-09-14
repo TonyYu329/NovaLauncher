@@ -1097,12 +1097,14 @@ function applyStyle() {
   const intensity = Math.max(0, Math.min(100, s.glassIntensity ?? 50));
   const bgStyle = s.bgStyle || "mica";
   const isLight = s.theme === "light";
-  const winOpacity = Math.max(20, Math.min(100, s.windowOpacity ?? 100)) / 100;
+  const winOpacityRaw = Math.max(20, Math.min(100, s.windowOpacity ?? 100)) / 100;
   const root = document.documentElement;
   root.dataset.bgstyle = enabled ? bgStyle : "none";
   // 背景模糊：0-100 映射到 0-30px，仅在背景透明时有效
   const bgBlur = Math.max(0, Math.min(100, s.bgBlur ?? 0));
   root.style.setProperty("--bg-blur", `${(bgBlur / 100 * 30).toFixed(1)}px`);
+  // 背景模糊时亚克力效果已提供色调，降低WebView2背景alpha让模糊桌面透出
+  const winOpacity = winOpacityRaw * (1 - (bgBlur / 100) * 0.6);
   // 液态玻璃模式下，背景透明度<100%时降低.backdrop的opacity，让桌面透出
   const backdrop = document.querySelector(".backdrop");
   if (backdrop) {
