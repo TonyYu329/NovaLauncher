@@ -1,4 +1,4 @@
-﻿# Nova Launcher · 绿色版（HTML + 本地宿主方案）
+# Nova Launcher · 绿色版（HTML + 本地宿主方案）
 
 极简的 Windows 应用启动页。**双击 `NovaLauncher.bat` 即用**，免安装、免运行时依赖。
 
