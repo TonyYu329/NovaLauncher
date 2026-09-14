@@ -247,13 +247,13 @@ function Set-NovaDwmBackground([IntPtr]$hwnd, [bool]$glassEnabled, [int]$windowO
         return
     }
     if ($windowOpacity -lt 100) {
-        # 保持透明框架，使用亚克力效果透出桌面
+        # 保持透明框架，不使用 Mica/亚克力，让桌面直接透出
         $m = New-Object DwmGlass+MARGINS
         $m.L = -1; $m.T = -1; $m.R = -1; $m.B = -1
         [DwmGlass]::DwmExtendFrameIntoClientArea($hwnd, [ref]$m) | Out-Null
-        $val = [DwmGlass]::DWMSBT_TRANSIENTWINDOW
-        [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$val, 4) | Out-Null
-        Write-Log "透明框架已启用（背景透明度 $windowOpacity%，亚克力）"
+        $val = 1  # DWMSBT_NONE - 不绘制系统背景，完全透明
+        $hr = [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$val, 4)
+        Write-Log "透明框架已启用（背景透明度 $windowOpacity%，hr=$hr）"
     } else {
         Disable-NovaGlass $hwnd
     }
