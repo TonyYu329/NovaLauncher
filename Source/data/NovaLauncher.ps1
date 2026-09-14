@@ -230,6 +230,15 @@ function Enable-NovaGlass([IntPtr]$hwnd) {
     Write-Log "毛玻璃已启用 (hr=$hr)"
 }
 
+function Disable-NovaGlass([IntPtr]$hwnd) {
+    $m = New-Object DwmGlass+MARGINS
+    $m.L = 0; $m.T = 0; $m.R = 0; $m.B = 0
+    [DwmGlass]::DwmExtendFrameIntoClientArea($hwnd, [ref]$m) | Out-Null
+    $val = 0  # DWMSBT_NONE
+    [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$val, 4) | Out-Null
+    Write-Log "毛玻璃已禁用"
+}
+
 # ---------------------------------------------------------------------------
 # NovaForm: 子类化 Form，拦截 WM_DPICHANGED（跨屏 DPI 切换）
 # ---------------------------------------------------------------------------
@@ -299,12 +308,14 @@ function Save-Apps($apps) {
 
 function Get-Settings {
     $s = Read-Json $SetFile $null
-    $r = [pscustomobject]@{ iconSize = 64; cols = 6; theme = 'dark'; win = $null }
+    $r = [pscustomobject]@{ iconSize = 64; cols = 6; theme = 'dark'; win = $null; glassEnabled = $true; glassIntensity = 50 }
     if ($s) {
-        if ($s.PSObject.Properties['iconSize']) { $r.iconSize = [int]$s.iconSize }
-        if ($s.PSObject.Properties['cols'])     { $r.cols     = [int]$s.cols }
-        if ($s.PSObject.Properties['theme'])    { $r.theme    = [string]$s.theme }
-        if ($s.PSObject.Properties['win'])      { $r.win      = $s.win }
+        if ($s.PSObject.Properties['iconSize'])      { $r.iconSize      = [int]$s.iconSize }
+        if ($s.PSObject.Properties['cols'])          { $r.cols          = [int]$s.cols }
+        if ($s.PSObject.Properties['theme'])         { $r.theme         = [string]$s.theme }
+        if ($s.PSObject.Properties['win'])           { $r.win           = $s.win }
+        if ($s.PSObject.Properties['glassEnabled'])  { $r.glassEnabled  = [bool]$s.glassEnabled }
+        if ($s.PSObject.Properties['glassIntensity']){ $r.glassIntensity= [int]$s.glassIntensity }
     }
     return $r
 }
@@ -1080,6 +1091,11 @@ function Invoke-NovaApi([string]$op, $data) {
                 'iconSize' { $n = 64; if ([int]::TryParse($v, [ref]$n)) { $s.iconSize = [Math]::Max(36, [Math]::Min(160, $n)) } }
                 'cols'     { $n = 6;  if ([int]::TryParse($v, [ref]$n)) { $s.cols     = [Math]::Max(3,  [Math]::Min(12, $n)) } }
                 'theme'    { if ($v -eq 'light' -or $v -eq 'dark') { $s.theme = $v } }
+                'glassEnabled' {
+                    $s.glassEnabled = ($v -eq 'true' -or $v -eq 'True')
+                    if ($s.glassEnabled) { Enable-NovaGlass $form.Handle } else { Disable-NovaGlass $form.Handle }
+                }
+                'glassIntensity' { $n = 50; if ([int]::TryParse($v, [ref]$n)) { $s.glassIntensity = [Math]::Max(0, [Math]::Min(100, $n)) } }
             }
             Save-Settings $s
             return [pscustomobject]@{ ok = $true; settings = $s }
@@ -1178,7 +1194,7 @@ try {
 
         if ($script:InitStep -eq 0) {
             Set-NovaWindowLayout -Windowed:$script:WantWindowed
-            Enable-NovaGlass $form.Handle
+            if ($settings.glassEnabled) { Enable-NovaGlass $form.Handle } else { Disable-NovaGlass $form.Handle }
             Start-NovaWebViewInit
             $preheatTimer.Start()
         }

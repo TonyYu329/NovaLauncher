@@ -1,8 +1,10 @@
-{
+﻿{
     "iconSize":  100,
     "cols":  10,
     "theme":  "dark",
     "win":  {
                 "state":  "windowed"
-            }
+            },
+    "glassEnabled":  true,
+    "glassIntensity":  50
 }

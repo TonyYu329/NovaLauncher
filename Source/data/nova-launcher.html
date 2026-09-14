@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark" data-page-node-id="P5D2iMQBwubHX6YIHBZpaL">
 <head data-page-node-id="PwnnOBj1G2HBk7kYOIrqnJ">
 <meta charset="UTF-8" data-page-node-id="A6EzTGUy6Nop7GTaryyWoD">
@@ -320,6 +320,25 @@
   .row{ display:flex; align-items:center; gap:11px; padding:8px 10px; border-radius:10px;
     border:1px solid transparent; transition:background var(--anim-fast) var(--ease), border-color var(--anim-fast) var(--ease); }
   .row:hover{ background:var(--glass); border-color:var(--stroke); }
+
+  /* 开关 */
+  .switch{ position:relative; display:inline-block; width:42px; height:24px; flex:0 0 auto; }
+  .switch input{ opacity:0; width:0; height:0; }
+  .switch .slider{ position:absolute; inset:0; border-radius:12px; cursor:pointer;
+    background:var(--stroke-strong); transition:background var(--anim-fast) var(--ease); }
+  .switch .slider::before{ content:""; position:absolute; width:18px; height:18px; left:3px; top:3px;
+    border-radius:50%; background:#fff; transition:transform var(--anim-fast) var(--ease); }
+  .switch input:checked + .slider{ background:var(--accent); }
+  .switch input:checked + .slider::before{ transform:translateX(18px); }
+
+  /* 滑块 */
+  .range-wrap{ display:flex; align-items:center; gap:10px; flex:1; }
+  .range-wrap input[type=range]{ flex:1; height:4px; border-radius:2px; background:var(--stroke-strong);
+    -webkit-appearance:none; appearance:none; outline:none; cursor:pointer; }
+  .range-wrap input[type=range]::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none;
+    width:16px; height:16px; border-radius:50%; background:var(--accent); cursor:pointer;
+    box-shadow:0 2px 6px rgba(0,0,0,.3); }
+  .range-wrap span{ font-size:12px; color:var(--text-3); min-width:28px; text-align:right; }
   .row .mini{ width:30px; height:30px; border-radius:8px; display:grid; place-items:center; flex:0 0 auto;
     overflow:hidden; }
   .row .mini img{ width:100%; height:100%; object-fit:contain; }
@@ -552,6 +571,22 @@
         <button data-t="light" data-page-node-id="ShSYLCJqeoGJpHDzIrdXhn">浅色</button>
       </div>
     </div>
+
+    <div class="row" data-page-node-id="glassRow1">
+      <label data-page-node-id="glassLbl">毛玻璃效果</label>
+      <label class="switch" data-page-node-id="glassSwitchLbl">
+        <input type="checkbox" id="glassEnabled" data-page-node-id="glassChk">
+        <span class="slider" data-page-node-id="glassSlider"></span>
+      </label>
+    </div>
+
+    <div class="row" id="glassIntensityRow" data-page-node-id="glassRow2">
+      <label data-page-node-id="glassIntLbl">毛玻璃强度</label>
+      <div class="range-wrap" data-page-node-id="glassRangeWrap">
+        <input type="range" id="glassIntensity" min="0" max="100" value="50" data-page-node-id="glassRange">
+        <span id="glassIntVal" data-page-node-id="glassIntVal">50</span>
+      </div>
+    </div>
   </div>
 
   <div class="sec" data-page-node-id="VXCLA34Eq6ShE9GFyL28Ws">
@@ -608,7 +643,7 @@
 const HOSTED = !!(window.chrome && window.chrome.webview);
 const $ = id => document.getElementById(id);
 
-let state = { apps: [], settings: { iconSize: 64, cols: 6, theme: "dark" } };
+let state = { apps: [], settings: { iconSize: 64, cols: 6, theme: "dark", glassEnabled: true, glassIntensity: 50 } };
 
 /* ==========================================================================
    演示模式数据（直接双击打开 HTML 时使用，不执行任何启动动作）
@@ -670,7 +705,7 @@ const API = {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(LSKEY) || "null"); } catch (e) {}
     const apps  = (saved && saved.apps) || DEMO.slice(0, 6).map(a => Object.assign({}, a));
-    const sets  = (saved && saved.settings) || { iconSize:64, cols:6, theme:"dark" };
+    const sets  = (saved && saved.settings) || { iconSize:64, cols:6, theme:"dark", glassEnabled:true, glassIntensity:50 };
     return { apps, settings: sets, demo: true };
   },
 
@@ -872,6 +907,39 @@ function fallbackMini(app) {
   return g;
 }
 
+function applyGlass() {
+  const s = state.settings;
+  const enabled = s.glassEnabled !== false;
+  const intensity = Math.max(0, Math.min(100, s.glassIntensity ?? 50));
+  const root = document.documentElement;
+  if (enabled) {
+    // 强度越高，背景越透明（透出更多 Mica），blur 越强
+    const alpha = 0.78 - (intensity / 100) * 0.55;  // 0.78(弱) -> 0.23(强)
+    const blur = (intensity / 100) * 24;            // 0 -> 24px
+    root.style.setProperty("--bg-base", `rgba(16,16,20,${alpha.toFixed(3)})`);
+    root.style.setProperty("--panel", `rgba(26,26,32,${(alpha + 0.06).toFixed(3)})`);
+    root.style.setProperty("--glass-blur", `${blur.toFixed(1)}px`);
+    root.classList.add("glass-on");
+    root.classList.remove("glass-off");
+  } else {
+    root.style.setProperty("--bg-base", "rgba(16,16,20,1)");
+    root.style.setProperty("--panel", "rgba(26,26,32,1)");
+    root.style.setProperty("--glass-blur", "0px");
+    root.classList.add("glass-off");
+    root.classList.remove("glass-on");
+  }
+  // 同步控件
+  const chk = $("glassEnabled");
+  if (chk) chk.checked = enabled;
+  const range = $("glassIntensity");
+  if (range) range.value = intensity;
+  const val = $("glassIntVal");
+  if (val) val.textContent = intensity;
+  const row = $("glassIntensityRow");
+  if (row) row.style.opacity = enabled ? "1" : "0.4";
+  if (row) row.style.pointerEvents = enabled ? "auto" : "none";
+}
+
 function renderSettings() {
   const s = state.settings;
   $("sizeRange").value = s.iconSize;
@@ -881,6 +949,7 @@ function renderSettings() {
   document.documentElement.style.setProperty("--cols", s.cols);
   document.documentElement.dataset.theme = s.theme;
   document.querySelectorAll("#themeSeg button").forEach(b => b.classList.toggle("on", b.dataset.t === s.theme));
+  applyGlass();
 }
 
 function renderAll() { renderGrid(); renderList(); renderSettings(); }
@@ -1404,6 +1473,22 @@ $("themeSeg").onclick = e => {
   API.setting("theme", b.dataset.t).catch(() => {});
 };
 
+$("glassEnabled").onchange = e => {
+  state.settings.glassEnabled = e.target.checked;
+  applyGlass();
+  API.setting("glassEnabled", e.target.checked).catch(() => {});
+};
+
+let glassTimer = null;
+$("glassIntensity").oninput = e => {
+  const v = +e.target.value;
+  state.settings.glassIntensity = v;
+  $("glassIntVal").textContent = v;
+  applyGlass();
+  clearTimeout(glassTimer);
+  glassTimer = setTimeout(() => API.setting("glassIntensity", v).catch(() => {}), 200);
+};
+
 $("addApp").onclick = async () => {
   try {
     const r = await API.pick();
@@ -1642,7 +1727,7 @@ $("instAddSel").onclick = async () => {
    ========================================================================== */
 async function refresh() {
   const d = await API.state();
-  state = { apps: d.apps || [], settings: Object.assign({ iconSize:64, cols:6, theme:"dark" }, d.settings || {}) };
+  state = { apps: d.apps || [], settings: Object.assign({ iconSize:64, cols:6, theme:"dark", glassEnabled:true, glassIntensity:50 }, d.settings || {}) };
   renderAll();
   return d;
 }
