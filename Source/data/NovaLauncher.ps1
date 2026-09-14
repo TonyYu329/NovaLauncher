@@ -242,18 +242,18 @@ function Disable-NovaGlass([IntPtr]$hwnd) {
 # 根据 glassEnabled 和 windowOpacity 设置 DWM 背景
 # windowOpacity < 100 时，即使禁用毛玻璃也保持透明框架，让桌面透出来
 function Set-NovaDwmBackground([IntPtr]$hwnd, [bool]$glassEnabled, [int]$windowOpacity) {
-    if ($glassEnabled) {
-        Enable-NovaGlass $hwnd
-        return
-    }
     if ($windowOpacity -lt 100) {
-        # 保持透明框架，不使用 Mica/亚克力，让桌面直接透出
+        # 背景透明度<100%时，无论是否启用毛玻璃，都使用纯透明框架让桌面透出
+        # 毛玻璃/液态玻璃的视觉效果由 WebView2 CSS 层提供
         $m = New-Object DwmGlass+MARGINS
         $m.L = -1; $m.T = -1; $m.R = -1; $m.B = -1
         [DwmGlass]::DwmExtendFrameIntoClientArea($hwnd, [ref]$m) | Out-Null
         $val = 1  # DWMSBT_NONE - 不绘制系统背景，完全透明
         $hr = [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$val, 4)
-        Write-Log "透明框架已启用（背景透明度 $windowOpacity%，hr=$hr）"
+        $style = if ($glassEnabled) { "毛玻璃+透明" } else { "透明" }
+        Write-Log "透明框架已启用（背景透明度 $windowOpacity%，$style，hr=$hr）"
+    } elseif ($glassEnabled) {
+        Enable-NovaGlass $hwnd
     } else {
         Disable-NovaGlass $hwnd
     }
