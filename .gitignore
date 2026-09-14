@@ -6,3 +6,4 @@ Source/data/host.log
 Source/data/runtime.json
 Source/data/*.png
 *.log
+verify/
