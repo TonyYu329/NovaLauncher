@@ -5,13 +5,13 @@
     "win":  null,
     "glassEnabled":  false,
     "glassIntensity":  50,
-    "bgStyle":  "mica",
+    "bgStyle":  "liquid",
     "windowOpacity":  100,
     "bgImageEnabled":  false,
     "bgImagePath":  "",
     "bgImageMode":  "cover",
-    "iconFontFamily":  "system",
-    "iconFontSize":  12,
-    "iconFontColor":  "#ececf1",
+    "iconFontFamily":  "\u0027Microsoft YaHei\u0027, sans-serif",
+    "iconFontSize":  14,
+    "iconFontColor":  "#ffffff",
     "iconFontWeight":  600
 }
