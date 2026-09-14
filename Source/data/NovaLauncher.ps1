@@ -17,6 +17,22 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
+# 强制隐藏控制台窗口（Windows Terminal 可能忽略 -WindowStyle Hidden，用 Win32 API 兜底）
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class NovaConsole {
+    [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+}
+"@
+$__consoleHwnd = [NovaConsole]::GetConsoleWindow()
+if ($__consoleHwnd -ne [IntPtr]::Zero) { [NovaConsole]::ShowWindow($__consoleHwnd, 0) | Out-Null }
+
+# 抑制 libpng 等原生库的控制台警告输出
+try { [Console]::SetOut([System.IO.TextWriter]::Null) } catch { }
+try { [Console]::SetError([System.IO.TextWriter]::Null) } catch { }
+
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 

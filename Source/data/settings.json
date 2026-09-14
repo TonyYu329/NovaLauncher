@@ -1,12 +1,12 @@
-﻿{
+{
     "iconSize":  100,
     "cols":  10,
     "theme":  "dark",
     "win":  null,
     "glassEnabled":  false,
     "glassIntensity":  50,
-    "bgStyle":  "liquid",
-    "windowOpacity":  100,
+    "bgStyle":  "mica",
+    "windowOpacity":  62,
     "bgBlur":  0,
     "bgImageEnabled":  false,
     "bgImagePath":  "",

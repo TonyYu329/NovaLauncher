@@ -19,5 +19,5 @@ if errorlevel 1 (
   exit /b 1
 )
 
-start "" powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "%~dp0data\NovaLauncher.ps1" %*
+start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "%~dp0data\NovaLauncher.ps1" %*
 exit /b 0
