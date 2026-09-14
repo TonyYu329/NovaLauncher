@@ -671,7 +671,7 @@
     </div>
 
     <div class="field">
-      <label>窗体透明度 <b><span id="opacityVal">100</span>%</b></label>
+      <label>背景透明度 <b><span id="opacityVal">100</span>%</b></label>
       <input type="range" id="windowOpacity" min="20" max="100" value="100">
     </div>
 
@@ -1145,7 +1145,7 @@ function applyStyle() {
 function applyWindowOpacity() {
   const s = state.settings;
   const opacity = Math.max(20, Math.min(100, s.windowOpacity ?? 100));
-  // 窗体透明度整合到 applyStyle() 中，影响 --bg-base 和 --panel 的 alpha
+  // 背景透明度整合到 applyStyle() 中，影响 --bg-base 和 --panel 的 alpha
   applyStyle();
   const range = $("windowOpacity");
   if (range) range.value = opacity;
