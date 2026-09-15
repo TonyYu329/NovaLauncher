@@ -230,8 +230,6 @@ public static class DwmGlass {
     public const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     [DllImport("dwmapi.dll")] public static extern int DwmExtendFrameIntoClientArea(IntPtr h, ref MARGINS m);
     [StructLayout(LayoutKind.Sequential)] public struct MARGINS { public int L, T, R, B; }
-    // 阻塞到下一次 DWM 合成提交：隐藏本窗口后调用，可确保抓屏时桌面已重绘（比固定 Sleep 可靠）
-    [DllImport("dwmapi.dll")] public static extern void DwmFlush();
 
     // 旧版亚克力 API：可设置色调为完全透明，只保留模糊
     [DllImport("user32.dll")] public static extern int SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
@@ -302,46 +300,6 @@ public static class DwmGlass {
 '@
 }
 
-# ---------------------------------------------------------------------------
-# 桌面抓屏：抓取窗口背后那块屏幕（物理像素），保存为 PNG，供前端做高斯模糊
-# 模糊半径由前端 CSS filter 控制（连续可调），后端只负责抓真实桌面像素
-# ---------------------------------------------------------------------------
-if (-not ('NovaCapture' -as [type])) {
-    Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-using System.Drawing;
-public static class NovaCapture {
-    [DllImport("user32.dll")] public static extern IntPtr GetDC(IntPtr hwnd);
-    [DllImport("user32.dll")] public static extern int ReleaseDC(IntPtr hwnd, IntPtr dc);
-    [DllImport("gdi32.dll")] public static extern bool BitBlt(IntPtr dst, int x, int y, int w, int hgt, IntPtr src, int sx, int sy, int rop);
-    [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
-    [DllImport("gdi32.dll")] public static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int w, int hgt);
-    [DllImport("gdi32.dll")] public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
-    [DllImport("gdi32.dll")] public static extern bool DeleteDC(IntPtr hdc);
-    [DllImport("gdi32.dll")] public static extern bool DeleteObject(IntPtr obj);
-    public const int SRCCOPY = 0x00CC0020;
-    // 抓取虚拟屏幕上 (x,y,w,h) 区域（物理像素，支持多屏负坐标），存为 PNG；BitBlt 失败返回 false 且不写文件
-    public static bool CaptureRect(int x, int y, int w, int hgt, string path) {
-        IntPtr sdc = GetDC(IntPtr.Zero);
-        if (sdc == IntPtr.Zero) return false;
-        IntPtr mdc = CreateCompatibleDC(sdc);
-        IntPtr bmp = CreateCompatibleBitmap(sdc, w, hgt);
-        IntPtr old = SelectObject(mdc, bmp);
-        bool ok = BitBlt(mdc, 0, 0, w, hgt, sdc, x, y, SRCCOPY);
-        SelectObject(mdc, old);
-        if (ok) {
-            using (Bitmap b = Image.FromHbitmap(bmp)) {
-                b.Save(path, System.Drawing.Imaging.ImageFormat.Png);
-            }
-        }
-        DeleteObject(bmp); DeleteDC(mdc); ReleaseDC(IntPtr.Zero, sdc);
-        return ok;
-    }
-}
-'@
-}
-
 # 任务栏图标：AppUserModelID + WM_SETICON 强制设置
 if (-not ('NovaTaskbar' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -399,133 +357,37 @@ function Disable-NovaGlass([IntPtr]$hwnd) {
     Write-Log "毛玻璃已禁用"
 }
 
-# 根据 glassEnabled 和 windowOpacity 设置 DWM 背景
-# windowOpacity < 100 时，即使禁用毛玻璃也保持透明框架，让桌面透出来
-# bgBlur > 0 时同样走透明框架，但不启用系统亚克力（模糊半径不可调），
-#           改为前端用“桌面抓屏快照 + CSS 高斯模糊”实现连续可调的模糊
+# 根据 glassEnabled / windowOpacity / bgBlur 设置 DWM 窗口背景（全部为系统级、实时，不截屏）
+#   bgBlur>0           → DWMSBT_TRANSIENTWINDOW：DWM 对窗口背后桌面做实时亚克力高斯模糊，真透明、移动实时跟随
+#   windowOpacity<100  → 纯透明框架（DWMSBT_NONE）：桌面清晰透出，前端只叠色调
+#   glassEnabled       → 系统 Mica/亚克力；否则完全不透明
 function Set-NovaDwmBackground([IntPtr]$hwnd, [bool]$glassEnabled, [int]$windowOpacity, [int]$bgBlur = 0, [bool]$isDark = $true) {
-    if ($windowOpacity -lt 100 -or $bgBlur -gt 0) {
-        # 透明框架：bgBlur=0 桌面清晰透出；bgBlur>0 由前端桌面快照模糊层覆盖
-        $m = New-Object DwmGlass+MARGINS
+    # 深浅色标题栏；不使用已在 Win11 退化为纯色的经典 SetWindowCompositionAttribute 亚克力
+    $darkVal = if ($isDark) { 1 } else { 0 }
+    [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_USE_IMMERSIVE_DARK_MODE, [ref]$darkVal, 4) | Out-Null
+    [DwmGlass]::DisableAcrylicBlur($hwnd)
+    $m = New-Object DwmGlass+MARGINS
+
+    if ($bgBlur -gt 0) {
+        # 窗口级实时亚克力模糊：模糊由 DWM 完成，前端只叠加可调浓度的磨砂染色层
         $m.L = -1; $m.T = -1; $m.R = -1; $m.B = -1
         [DwmGlass]::DwmExtendFrameIntoClientArea($hwnd, [ref]$m) | Out-Null
-        # 设置标题栏色调为深色或浅色模式
-        $darkVal = if ($isDark) { 1 } else { 0 }
-        [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_USE_IMMERSIVE_DARK_MODE, [ref]$darkVal, 4) | Out-Null
-        # 统一关闭系统亚克力（其模糊半径系统锁死且强制灰白染色），模糊交给前端快照层
-        [DwmGlass]::DisableAcrylicBlur($hwnd)
+        $acrylic = 3  # DWMSBT_TRANSIENTWINDOW（实时亚克力）
+        [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$acrylic, 4) | Out-Null
+        Write-Log "窗口实时亚克力模糊已启用（模糊 $bgBlur%，背景透明度 $windowOpacity%，dark=$darkVal）"
+    } elseif ($windowOpacity -lt 100) {
+        # 纯透明框架：不启用任何系统模糊，桌面清晰透出
+        $m.L = -1; $m.T = -1; $m.R = -1; $m.B = -1
+        [DwmGlass]::DwmExtendFrameIntoClientArea($hwnd, [ref]$m) | Out-Null
         $none = 1  # DWMSBT_NONE
         [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$none, 4) | Out-Null
-        if ($bgBlur -gt 0) {
-            Write-Log "透明框架已启用（背景透明度 $windowOpacity%，背景模糊 $bgBlur%，桌面快照模糊模式，dark=$darkVal）"
-        } else {
-            $style = if ($glassEnabled) { "毛玻璃+透明" } else { "透明" }
-            Write-Log "透明框架已启用（背景透明度 $windowOpacity%，$style）"
-        }
+        $style = if ($glassEnabled) { "毛玻璃色调+透明" } else { "透明" }
+        Write-Log "透明框架已启用（背景透明度 $windowOpacity%，$style）"
     } elseif ($glassEnabled) {
-        [DwmGlass]::DisableAcrylicBlur($hwnd)
         Enable-NovaGlass $hwnd
     } else {
-        [DwmGlass]::DisableAcrylicBlur($hwnd)
         Disable-NovaGlass $hwnd
     }
-}
-
-# ---------------------------------------------------------------------------
-# 背景快照：抓窗口背后桌面 → PNG（前端做高斯模糊）。静止快照，不实时跟随
-# 流程：隐藏 WebView2（露出透明 Form 后的桌面）→ 等一帧 → BitBlt 抓 → 恢复 → 通知前端
-# ---------------------------------------------------------------------------
-$script:BgSnapDebounce = $null   # 移动/缩放/设置变化后的防抖
-$script:BgSnapCapture  = $null   # 隐藏 WebView2 后延迟抓屏
-
-function Initialize-NovaBgSnapshotTimers {
-    if ($null -eq $script:BgSnapDebounce) {
-        $script:BgSnapDebounce = New-Object System.Windows.Forms.Timer
-        $script:BgSnapDebounce.Interval = 260
-        $script:BgSnapDebounce.Add_Tick({
-            $script:BgSnapDebounce.Stop()
-            Start-NovaBgSnapshotCapture
-        })
-    }
-    if ($null -eq $script:BgSnapCapture) {
-        $script:BgSnapCapture = New-Object System.Windows.Forms.Timer
-        $script:BgSnapCapture.Interval = 170
-        $script:BgSnapCapture.Add_Tick({
-            $script:BgSnapCapture.Stop()
-            Invoke-NovaBgSnapshotGrab
-        })
-    }
-}
-
-# 请求一次背景快照（带防抖）。bgBlur<=0 时不抓
-function Request-NovaBgSnapshot([int]$delay = 260) {
-    try {
-        if (-not $script:WebController -or -not $script:WebView) { return }
-        $s = Get-Settings
-        if ([int]$s.bgBlur -le 0) { return }
-        Initialize-NovaBgSnapshotTimers
-        $script:BgSnapCapture.Stop()
-        $script:BgSnapDebounce.Stop()
-        if ($delay -le 0) { Start-NovaBgSnapshotCapture }
-        else {
-            $script:BgSnapDebounce.Interval = $delay
-            $script:BgSnapDebounce.Start()
-        }
-    } catch { Write-Log "请求背景快照失败: $($_.Exception.Message)" }
-}
-
-# 第一步：隐藏整个窗口（Form + WebView2），露出真实桌面，等待 DWM 重绘一帧
-function Start-NovaBgSnapshotCapture {
-    if (-not $script:WebController) { return }
-    try {
-        $s = Get-Settings
-        if ([int]$s.bgBlur -le 0) { return }
-        # 最小化（GetWindowRect 为 -32000 无效坐标）或不可见时不抓
-        if ([NovaWindow]::IsIconic($form.Handle) -or -not [NovaWindow]::IsWindowVisible($form.Handle)) { return }
-        # 隐藏前记录窗口物理矩形（隐藏后据此抓原位桌面）
-        $r0 = New-Object NovaWindow+RECT
-        [NovaWindow]::GetWindowRect($form.Handle, [ref]$r0) | Out-Null
-        if (($r0.R - $r0.L) -le 0 -or ($r0.B - $r0.T) -le 0) { return }
-        $script:BgSnapRect = $r0
-        # SW_HIDE 整个窗口，露出窗口背后真实桌面（仅隐藏 WebView2 会露出 Form 深色底，抓到黑色）
-        [NovaWindow]::ShowWindow($form.Handle, 0) | Out-Null
-        Initialize-NovaBgSnapshotTimers
-        $script:BgSnapCapture.Stop()
-        $script:BgSnapCapture.Interval = 120
-        $script:BgSnapCapture.Start()
-    } catch { Write-Log "快照隐藏窗口失败: $($_.Exception.Message)" }
-}
-
-# 第二步：BitBlt 抓屏 → 恢复窗口显示并前置 → 推送快照刷新通知给前端
-function Invoke-NovaBgSnapshotGrab {
-    if (-not $script:WebController) { return }
-    $path = Join-Path $DataDir 'bg-snapshot.png'
-    $w = 0; $h = 0; $grabbed = $false
-    try {
-        $r = $script:BgSnapRect
-        if ($null -eq $r) { $r = New-Object NovaWindow+RECT; [NovaWindow]::GetWindowRect($form.Handle, [ref]$r) | Out-Null }
-        $w = $r.R - $r.L; $h = $r.B - $r.T
-        if ($w -gt 0 -and $h -gt 0) {
-            # 泵消息 + 等待 DWM 合成两帧，确保隐藏后桌面已完成重绘，避免抓到本窗口残留
-            try { [System.Windows.Forms.Application]::DoEvents() } catch {}
-            try { [DwmGlass]::DwmFlush(); [DwmGlass]::DwmFlush() } catch { Start-Sleep -Milliseconds 80 }
-            $grabbed = [NovaCapture]::CaptureRect($r.L, $r.T, $w, $h, $path)
-            if (-not $grabbed) { Write-Log "快照抓屏失败：BitBlt 未成功（屏幕 DC 不可读），保留旧快照" }
-        }
-    } catch { Write-Log "快照抓屏异常: $($_.Exception.Message)" }
-    finally {
-        try { [NovaWindow]::ShowWindow($form.Handle, 5) | Out-Null } catch {}   # SW_SHOW
-        try { [NovaWindow]::ForceForeground($form.Handle) | Out-Null } catch {}
-        try { $script:WebController.IsVisible = $true } catch {}
-    }
-    try {
-        if ($grabbed -and (Test-Path $path) -and $script:WebView) {
-            $t = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-            $json = @{ op = 'bgSnapshot'; t = $t; w = $w; h = $h } | ConvertTo-Json -Compress
-            $script:WebView.PostWebMessageAsJson($json)
-            Write-Log "背景快照已更新 (${w}x${h})"
-        }
-    } catch { Write-Log "快照通知前端失败: $($_.Exception.Message)" }
 }
 
 # ---------------------------------------------------------------------------
@@ -1143,13 +1005,6 @@ function Set-NovaWindowLayout([switch]$Windowed) {
 
 $form.Add_Resize({
     if ($script:WebController) { $script:WebController.Bounds = $form.ClientRectangle }
-    # 桌面快照模糊模式下，窗口尺寸变化停下后重新抓屏（防抖）
-    Request-NovaBgSnapshot 280
-})
-
-$form.Add_LocationChanged({
-    # 桌面快照模糊模式下，窗口移动停下后重新抓屏（防抖）
-    Request-NovaBgSnapshot 280
 })
 
 # ---------------------------------------------------------------------------
@@ -1487,11 +1342,9 @@ function Invoke-NovaApi([string]$op, $data) {
                     Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light')
                 }
                 'bgBlur' {
-                    $oldBlur = [int]$s.bgBlur
                     $n = 0; if ([int]::TryParse($v, [ref]$n)) { $s.bgBlur = [Math]::Max(0, [Math]::Min(100, $n)) }
+                    # 切换系统级实时亚克力模糊开关（>0 开 TRANSIENTWINDOW，=0 回纯透明/玻璃），模糊由 DWM 实时完成
                     Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light')
-                    # 从无模糊切到有模糊：抓一次桌面快照；>0 区间内拖动只改前端模糊半径，不重抓
-                    if ($oldBlur -le 0 -and [int]$s.bgBlur -gt 0) { Request-NovaBgSnapshot 120 }
                 }
                 'bgImageEnabled' { $s.bgImageEnabled = ($v -eq 'true' -or $v -eq 'True') }
                 'bgImagePath' { $s.bgImagePath = $v }
@@ -1503,11 +1356,6 @@ function Invoke-NovaApi([string]$op, $data) {
             }
             Save-Settings $s
             return [pscustomobject]@{ ok = $true; settings = $s }
-        }
-        'bgSnapshot' {
-            # 前端请求重新抓取桌面快照（页面加载后兜底 / 手动刷新）
-            Request-NovaBgSnapshot 80
-            return [pscustomobject]@{ ok = $true }
         }
         'reveal' {
             $tgt = [string]$data.p
