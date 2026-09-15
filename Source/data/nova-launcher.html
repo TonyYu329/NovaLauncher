@@ -1021,9 +1021,10 @@ function renderGrid() {
   if (!state.apps.length) {
     const e = document.createElement("div");
     e.className = "empty";
-    // 空状态只留最简提示（正常有应用时不会出现）
-    e.innerHTML = '<div class="big">＋</div><h2>还没有任何应用</h2>';
+    e.innerHTML = '<div class="big" id="emptyAddBtn" style="cursor:pointer" title="点击选择应用">＋</div><h2>将应用拖拽到此处以添加</h2><p style="margin-top:6px">或点击 ＋ 选择 EXE / 快捷方式</p>';
     grid.appendChild(e);
+    const btn = document.getElementById("emptyAddBtn");
+    if (btn) btn.addEventListener("click", pickAndAddApps);
     return;
   }
   state.apps.forEach((app, i) => {
@@ -1940,14 +1941,15 @@ $("iconWeightSeg").onclick = e => {
   API.setting("iconFontWeight", +b.dataset.w).catch(() => {});
 };
 
-$("addApp").onclick = async () => {
+async function pickAndAddApps() {
   try {
     const r = await API.pick();
     if (r.cancelled) return;
     if (r.ok) { await refresh(); toast("＋ " + (r.msg || "已添加")); }
     else { toast(r.msg || "未添加任何应用", !r.cancelled); }
   } catch (e) { toast("添加失败：" + e.message, true); }
-};
+}
+$("addApp").onclick = pickAndAddApps;
 
 $("revealData").onclick = () => API.reveal().then(() => toast("已打开数据目录")).catch(() => {});
 $("quitHost").onclick   = () => API.quit().then(() => toast("正在退出…")).catch(() => {});

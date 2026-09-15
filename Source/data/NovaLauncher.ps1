@@ -750,7 +750,7 @@ function Show-OpenFileDialog {
             }
         } catch { $pack.error = $_.Exception.Message } finally { $pack.evt.Set() }
     }
-    $th = New-Object System.Threading.Thread($sb)
+    $th = New-Object System.Threading.Thread([System.Threading.ParameterizedThreadStart]$sb)
     $th.SetApartmentState([System.Threading.ApartmentState]::STA)
     $th.Start($pack)
     $pack.evt.WaitOne() | Out-Null
