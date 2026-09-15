@@ -1453,7 +1453,7 @@ function fileRefsFrom(e) {
   const push = (path, name) => {
     const p = (path || "").trim(), n = (name || "").trim();
     if (!p && !n) return;
-    if (out.some(o => o.p === p && o.n === n)) return;   // 同一个文件可能被两条通道都取到
+    if (out.some(o => o.p === p && o.n === n)) return;
     out.push({ p, n, k: "" });
   };
   const dt = e.dataTransfer;
@@ -1461,19 +1461,24 @@ function fileRefsFrom(e) {
   if (items && items.length) {
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
-      if (!it || it.kind !== "file") continue;          // 只认文件；拖动的文本 / URL 直接忽略
+      if (!it || it.kind !== "file") continue;
       let name = "", path = "", file = null, entry = null;
       try { file = it.getAsFile ? it.getAsFile() : null; } catch (_) {}
-      if (file && file.name) name = file.name;
-      try { entry = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null; } catch (_) {}
-      if (entry && entry.isFile) {
-        if (!name && entry.name) name = entry.name;
-        let fp = entry.fullPath || "";
-        if (fp[0] === "/") fp = fp.slice(1);
-        // 只有「带目录分隔符」的才算真路径；只剩文件名的情况留给宿主按名字解析
-        if (fp && (fp.indexOf("/") >= 0 || fp.indexOf("\\") >= 0)) path = fp;
+      if (file) {
+        if (file.name) name = file.name;
+        // WebView2/Chromium 扩展：file.path 即绝对路径，优先使用
+        if (file.path) path = file.path;
       }
-      if (!path && file && file.path) path = file.path;
+      // file.path 拿不到时（如 UWP/搜索结果），再尝试 entry.fullPath
+      if (!path) {
+        try { entry = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null; } catch (_) {}
+        if (entry && entry.isFile) {
+          if (!name && entry.name) name = entry.name;
+          let fp = entry.fullPath || "";
+          if (fp[0] === "/") fp = fp.slice(1);
+          if (fp && (fp.indexOf("/") >= 0 || fp.indexOf("\\") >= 0)) path = fp;
+        }
+      }
       push(path, name);
     }
   }

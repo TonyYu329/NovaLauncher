@@ -653,6 +653,42 @@ function Resolve-AppRefInner([string]$Ref, [string]$Hint = '') {
             return $pick
         }
     }
+    # 兜底：Windows App Paths 注册表（已安装应用的标准 exe→路径映射，如 Evernote.exe）
+    foreach ($n in $want) {
+        $lk = $n.ToLower()
+        foreach ($base in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths',
+                            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths')) {
+            $key = Join-Path $base $lk
+            try {
+                if (Test-Path -LiteralPath $key) {
+                    $val = (Get-ItemProperty -LiteralPath $key).'(default)'
+                    if ($val) {
+                        $val = [string]$val
+                        if ($val -match '^"([^"]+)"') { $val = $Matches[1] }
+                        try { if (Test-Path -LiteralPath $val) { return (Get-Item -LiteralPath $val).FullName } } catch { }
+                    }
+                }
+            } catch { }
+        }
+    }
+    # 最终兜底：常见安装目录浅层递归搜索（Program Files / AppData\Local\Programs）
+    $installRoots = @(
+        ${env:ProgramFiles},
+        ${env:ProgramFiles(x86)},
+        (Join-Path $env:LOCALAPPDATA 'Programs')
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
+    foreach ($n in $want) {
+        $lk = $n.ToLower()
+        foreach ($root in $installRoots) {
+            try {
+                $found = @(Get-ChildItem -LiteralPath $root -Recurse -File -Depth 3 -Filter $n -ErrorAction SilentlyContinue)
+                if ($found.Count -gt 0) {
+                    $pick = @($found | Sort-Object FullName)[0]
+                    return $pick.FullName
+                }
+            } catch { }
+        }
+    }
     return $null
 }
 
