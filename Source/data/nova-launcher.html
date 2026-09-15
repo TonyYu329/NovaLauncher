@@ -851,13 +851,11 @@ if (HOSTED) {
   window.chrome.webview.addEventListener("message", (e) => {
     let msg;
     try { msg = typeof e.data === "string" ? JSON.parse(e.data) : e.data; } catch (_) { return; }
-    // 后端主动推送：原生拖拽事件（WinForms 层面获取文件绝对路径）
-    if (msg.op === "dragenter") { showDrop(); return; }
-    if (msg.op === "dragleave") { hideDrop(); return; }
-    if (msg.op === "dragdrop") {
+    // 后端原生 WM_DROPFILES 拖拽完成：直接刷新界面
+    if (msg.op === "appsChanged") {
       hideDrop();
-      const items = Array.isArray(msg.items) ? msg.items.map(it => ({ p: it.p || "", n: it.n || "", k: it.k || "" })) : [];
-      if (items.length) API.addBatch(items);
+      refresh();
+      if (msg.added > 0) toast("＋ 已添加 " + msg.added + " 个应用" + (msg.failed > 0 ? "，失败 " + msg.failed + " 个" : ""), msg.failed > 0);
       return;
     }
     if (msg.id != null && __pending.has(msg.id)) {
