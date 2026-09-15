@@ -403,8 +403,6 @@ using System.Collections.Generic;
 public class NovaForm : Form {
     public Action NovaDpiChanged;
     public Action<string[]> NovaFilesDropped;
-    public Action NovaDragEnter;
-    public Action NovaDragLeave;
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     // FormBorderStyle=None 时 WinForms 会忽略 MinimizeBox，导致任务栏点击无法最小化/恢复。
     // 这里强制添加 WS_MINIMIZEBOX，无边框窗口不显示标题栏所以无视觉影响。
@@ -1082,41 +1080,27 @@ $form.Add_Resize({
 
 # ---------------------------------------------------------------------------
 # 原生拖拽：WinForms 层面获取文件绝对路径（WebView2 前端拿不到 file.path），
-# 通过 PostWebMessageAsJson 推送给前端。dropEffect=Link 使 Windows 显示"创建快捷方式"。
+# 通过 PostWebMessageAsJson 推送给前端。
+# 方案：WndProc 处理 WM_DROPFILES（需 WS_EX_ACCEPTFILES，已在 NovaForm.CreateParams 中设置）。
+# 注意：不能设置 Form.AllowDrop=true（会注册 IDropTarget 从而禁用 WM_DROPFILES），
+#       WebView2 初始化后需 RevokeDragDrop 撤销其 IDropTarget。
 # ---------------------------------------------------------------------------
-$form.AllowDrop = $true
-$form.Add_DragEnter({
-    param($s, $e)
-    if ($e.Data.GetDataPresent([System.Windows.Forms.DataFormats]::FileDrop)) {
-        $e.Effect = [System.Windows.Forms.DragDropEffects]::Link
-        Write-Log "DragEnter: FileDrop detected"
-        if ($script:WebController) {
-            try { $script:WebController.CoreWebView2.PostWebMessageAsJson('{"op":"dragenter"}') } catch { }
-        }
-    }
-})
-$form.Add_DragLeave({
-    if ($script:WebController) {
-        try { $script:WebController.CoreWebView2.PostWebMessageAsJson('{"op":"dragleave"}') } catch { }
-    }
-})
-$form.Add_DragDrop({
-    param($s, $e)
+$form.NovaFilesDropped = {
+    param([string[]]$files)
     try {
-        $files = @($e.Data.GetData([System.Windows.Forms.DataFormats]::FileDrop))
-        Write-Log "DragDrop: $($files.Count) file(s) dropped"
+        Write-Log "NovaFilesDropped: $($files.Count) file(s)"
         if ($files.Count -gt 0 -and $script:WebController) {
             $arr = @()
             foreach ($f in $files) {
                 try { $name = [System.IO.Path]::GetFileName($f.TrimEnd('\')) } catch { $name = $f }
                 $arr += [pscustomobject]@{ p = $f; n = $name; k = "" }
-                Write-Log "DragDrop file: $f"
+                Write-Log "  file: $f"
             }
             $json = @{ op = "dragdrop"; items = $arr } | ConvertTo-Json -Compress -Depth 3
             $script:WebController.CoreWebView2.PostWebMessageAsJson($json)
         }
-    } catch { Write-Log "DragDrop error: $_" }
-})
+    } catch { Write-Log "NovaFilesDropped error: $_" }
+}
 
 # ---------------------------------------------------------------------------
 # WebView2 层：异步初始化（Form.Shown + Timer 轮询，不阻塞 UI）
@@ -1181,10 +1165,16 @@ function Step-NovaWebViewInit {
                     $script:InitTimer.Dispose()
                     $script:InitStep = 3
                     Write-Log "WebView2 初始化完成"
-                    # WebView2 会注册自己的 IDropTarget 覆盖 Form 的，这里重新注册 Form 的拖拽目标，
-                    # 使 DragEnter/DragDrop 事件能接收文件拖拽（获取绝对路径）
-                    $form.AllowDrop = $false
-                    $form.AllowDrop = $true
+                    # WebView2 注册了 IDropTarget，会禁用 WM_DROPFILES。撤销它，使 NovaForm.WndProc 能接收 WM_DROPFILES。
+                    try {
+                        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class OleDrag { [DllImport("ole32.dll")] public static extern int RevokeDragDrop(IntPtr hWnd); }
+'@ -ErrorAction SilentlyContinue
+                        $hr = [OleDrag]::RevokeDragDrop($form.Handle)
+                        Write-Log "RevokeDragDrop hr=0x$($hr.ToString('X8'))"
+                    } catch { Write-Log "RevokeDragDrop error: $_" }
                     $script:PreheatQueue = New-IconPreheatQueue
                     Initialize-NovaDebugHook
                 }
