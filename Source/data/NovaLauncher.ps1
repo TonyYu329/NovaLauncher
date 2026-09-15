@@ -402,6 +402,15 @@ using System.Runtime.InteropServices;
 public class NovaForm : Form {
     public Action NovaDpiChanged;
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    // FormBorderStyle=None 时 WinForms 会忽略 MinimizeBox，导致任务栏点击无法最小化/恢复。
+    // 这里强制添加 WS_MINIMIZEBOX，无边框窗口不显示标题栏所以无视觉影响。
+    protected override CreateParams CreateParams {
+        get {
+            CreateParams cp = base.CreateParams;
+            cp.Style |= 0x20000; // WS_MINIMIZEBOX
+            return cp;
+        }
+    }
     protected override void WndProc(ref Message m) {
         if (m.Msg == 0x02E0) {
             RECT rc = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
@@ -955,8 +964,8 @@ $form = New-Object NovaForm
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
 $form.ShowInTaskbar   = $true
-$form.MaximizeBox     = $false
-$form.MinimizeBox     = $false
+$form.MaximizeBox     = $true
+$form.MinimizeBox     = $true
 $form.BackColor       = [System.Drawing.Color]::FromArgb(16, 16, 20)
 $form.Icon            = New-Object System.Drawing.Icon((Join-Path $DataDir 'nova-logo.ico'))
 $form.Text            = 'Nova Launcher'
