@@ -406,11 +406,13 @@ using System.Runtime.InteropServices.ComTypes;
 [Guid("00000122-0000-0000-C000-000000000046")]
 [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 public interface IDropTarget {
-    void DragEnter(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, long pt, ref int pdwEffect);
-    void DragOver(int grfKeyState, long pt, ref int pdwEffect);
+    void DragEnter(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, POINTL pt, ref int pdwEffect);
+    void DragOver(int grfKeyState, POINTL pt, ref int pdwEffect);
     void DragLeave();
-    void Drop(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, long pt, ref int pdwEffect);
+    void Drop(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, POINTL pt, ref int pdwEffect);
 }
+[StructLayout(LayoutKind.Sequential)]
+public struct POINTL { public int x; public int y; }
 
 public class NovaDropTarget : IDropTarget {
     public Action<string[]> OnDrop;
@@ -439,13 +441,13 @@ public class NovaDropTarget : IDropTarget {
             return files.ToArray();
         } catch { return null; }
     }
-    public void DragEnter(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, long pt, ref int pdwEffect) {
+    public void DragEnter(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, POINTL pt, ref int pdwEffect) {
         var files = GetFiles(pDataObj);
         if (files != null && files.Length > 0) { pdwEffect = 4; if (OnDragEnter != null) OnDragEnter(); } else { pdwEffect = 0; }
     }
-    public void DragOver(int grfKeyState, long pt, ref int pdwEffect) { pdwEffect = 4; }
+    public void DragOver(int grfKeyState, POINTL pt, ref int pdwEffect) { pdwEffect = 4; }
     public void DragLeave() { if (OnDragLeave != null) OnDragLeave(); }
-    public void Drop(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, long pt, ref int pdwEffect) {
+    public void Drop(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, POINTL pt, ref int pdwEffect) {
         var files = GetFiles(pDataObj);
         pdwEffect = (files != null && files.Length > 0) ? 4 : 0;
         if (files != null && files.Length > 0 && OnDrop != null) OnDrop(files);
