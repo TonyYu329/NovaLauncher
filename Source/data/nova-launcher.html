@@ -851,6 +851,15 @@ if (HOSTED) {
   window.chrome.webview.addEventListener("message", (e) => {
     let msg;
     try { msg = typeof e.data === "string" ? JSON.parse(e.data) : e.data; } catch (_) { return; }
+    // 后端主动推送：原生拖拽事件（WinForms 层面获取文件绝对路径）
+    if (msg.op === "dragenter") { showDrop(); return; }
+    if (msg.op === "dragleave") { hideDrop(); return; }
+    if (msg.op === "dragdrop") {
+      hideDrop();
+      const items = Array.isArray(msg.items) ? msg.items.map(it => ({ p: it.p || "", n: it.n || "", k: it.k || "" })) : [];
+      if (items.length) API.addBatch(items);
+      return;
+    }
     if (msg.id != null && __pending.has(msg.id)) {
       const p = __pending.get(msg.id);
       __pending.delete(msg.id);
@@ -1490,6 +1499,8 @@ function fileRefsFrom(e) {
 window.addEventListener("drop", e => {
   if (!isFileDrag(e)) return;
   e.preventDefault(); dragDepth = 0; hideDrop();
+  // HOSTED 环境下由后端 WinForms DragDrop 获取绝对路径并推送，前端不重复处理
+  if (HOSTED) return;
   const refs = fileRefsFrom(e);
   if (!refs.length) { toast("没能识别拖入的内容，请拖快捷方式或 .exe 文件", true); return; }
   addPaths(refs);

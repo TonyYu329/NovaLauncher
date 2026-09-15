@@ -399,24 +399,47 @@ using System;
 using System.Windows.Forms;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Collections.Generic;
 public class NovaForm : Form {
     public Action NovaDpiChanged;
+    public Action<string[]> NovaFilesDropped;
+    public Action NovaDragEnter;
+    public Action NovaDragLeave;
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
     // FormBorderStyle=None 时 WinForms 会忽略 MinimizeBox，导致任务栏点击无法最小化/恢复。
     // 这里强制添加 WS_MINIMIZEBOX，无边框窗口不显示标题栏所以无视觉影响。
     protected override CreateParams CreateParams {
         get {
             CreateParams cp = base.CreateParams;
-            cp.Style |= 0x20000; // WS_MINIMIZEBOX
+            cp.Style |= 0x20000;   // WS_MINIMIZEBOX
+            cp.ExStyle |= 0x10;    // WS_EX_ACCEPTFILES —— 接收 WM_DROPFILES
             return cp;
         }
     }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern uint DragQueryFile(IntPtr hDrop, uint iFile, System.Text.StringBuilder lpszFile, uint cch);
+    [DllImport("shell32.dll")]
+    static extern void DragFinish(IntPtr hDrop);
     protected override void WndProc(ref Message m) {
-        if (m.Msg == 0x02E0) {
+        if (m.Msg == 0x02E0) { // WM_DPICHANGED
             RECT rc = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
             this.Location = new Point(rc.Left, rc.Top);
             this.Size = new Size(rc.Right - rc.Left, rc.Bottom - rc.Top);
             if (NovaDpiChanged != null) NovaDpiChanged();
+            m.Result = IntPtr.Zero; return;
+        }
+        if (m.Msg == 0x0233) { // WM_DROPFILES —— 原生文件拖拽，WebView2 前端拿不到绝对路径
+            IntPtr hDrop = m.WParam;
+            uint count = DragQueryFile(hDrop, 0xFFFFFFFF, null, 0);
+            var files = new List<string>();
+            for (uint i = 0; i < count; i++) {
+                uint len = DragQueryFile(hDrop, i, null, 0);
+                var sb = new System.Text.StringBuilder((int)len + 1);
+                DragQueryFile(hDrop, i, sb, (uint)sb.Capacity);
+                files.Add(sb.ToString());
+            }
+            DragFinish(hDrop);
+            if (NovaFilesDropped != null && files.Count > 0) NovaFilesDropped(files.ToArray());
             m.Result = IntPtr.Zero; return;
         }
         base.WndProc(ref m);
@@ -1012,6 +1035,22 @@ $form.NovaDpiChanged = {
     if ($script:WebController) { $script:WebController.Bounds = $form.ClientRectangle }
 }
 
+# WM_DROPFILES 原生拖拽：WebView2 前端拿不到 file.path，在 WndProc 中获取绝对路径后推送
+$form.NovaFilesDropped = {
+    param([string[]]$files)
+    try {
+        if ($files.Count -gt 0 -and $script:WebController) {
+            $arr = @()
+            foreach ($f in $files) {
+                try { $name = [System.IO.Path]::GetFileName($f.TrimEnd('\')) } catch { $name = $f }
+                $arr += [pscustomobject]@{ p = $f; n = $name; k = "" }
+            }
+            $json = @{ op = "dragdrop"; items = $arr } | ConvertTo-Json -Compress -Depth 3
+            $script:WebController.CoreWebView2.PostWebMessageAsJson($json)
+        }
+    } catch { Write-Log "NovaFilesDropped error: $_" }
+}
+
 function Set-NovaWindowLayout([switch]$Windowed) {
     $wa = [System.Windows.Forms.Screen]::FromHandle($form.Handle).WorkingArea
 
@@ -1039,6 +1078,41 @@ function Set-NovaWindowLayout([switch]$Windowed) {
 
 $form.Add_Resize({
     if ($script:WebController) { $script:WebController.Bounds = $form.ClientRectangle }
+})
+
+# ---------------------------------------------------------------------------
+# 原生拖拽：WinForms 层面获取文件绝对路径（WebView2 前端拿不到 file.path），
+# 通过 PostWebMessageAsJson 推送给前端。dropEffect=Link 使 Windows 显示"创建快捷方式"。
+# ---------------------------------------------------------------------------
+$form.AllowDrop = $true
+$form.Add_DragEnter({
+    param($s, $e)
+    if ($e.Data.GetDataPresent([System.Windows.Forms.DataFormats]::FileDrop)) {
+        $e.Effect = [System.Windows.Forms.DragDropEffects]::Link
+        if ($script:WebController) {
+            try { $script:WebController.CoreWebView2.PostWebMessageAsJson('{"op":"dragenter"}') } catch { }
+        }
+    }
+})
+$form.Add_DragLeave({
+    if ($script:WebController) {
+        try { $script:WebController.CoreWebView2.PostWebMessageAsJson('{"op":"dragleave"}') } catch { }
+    }
+})
+$form.Add_DragDrop({
+    param($s, $e)
+    try {
+        $files = @($e.Data.GetData([System.Windows.Forms.DataFormats]::FileDrop))
+        if ($files.Count -gt 0 -and $script:WebController) {
+            $arr = @()
+            foreach ($f in $files) {
+                try { $name = [System.IO.Path]::GetFileName($f.TrimEnd('\')) } catch { $name = $f }
+                $arr += [pscustomobject]@{ p = $f; n = $name; k = "" }
+            }
+            $json = @{ op = "dragdrop"; items = $arr } | ConvertTo-Json -Compress -Depth 3
+            $script:WebController.CoreWebView2.PostWebMessageAsJson($json)
+        }
+    } catch { Write-Log "DragDrop error: $_" }
 })
 
 # ---------------------------------------------------------------------------
