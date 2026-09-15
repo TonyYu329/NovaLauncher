@@ -475,7 +475,7 @@ public class NovaForm : Form {
     static extern int RegisterDragDrop(IntPtr hWnd, IDropTarget pDropTarget);
     [DllImport("ole32.dll")]
     static extern int RevokeDragDrop(IntPtr hWnd);
-    public void RegisterNovaDropTarget() {
+    public int RegisterNovaDropTarget() {
         if (_dropTarget == null) {
             _dropTarget = new NovaDropTarget();
             _dropTarget.OnDrop = files => { if (NovaFilesDropped != null) NovaFilesDropped(files); };
@@ -484,7 +484,7 @@ public class NovaForm : Form {
         }
         RevokeDragDrop(this.Handle);
         int hr = RegisterDragDrop(this.Handle, _dropTarget);
-        System.Diagnostics.Debug.WriteLine("RegisterNovaDropTarget hr=0x" + hr.ToString("X8"));
+        return hr;
     }
     protected override void WndProc(ref Message m) {
         if (m.Msg == 0x02E0) { // WM_DPICHANGED
@@ -1170,6 +1170,7 @@ $form.NovaFilesDropped = {
     } catch { Write-Log "NovaFilesDropped error: $_" }
 }
 $form.NovaDragEnter = {
+    Write-Log "NovaDragEnter fired"
     if ($script:WebController) {
         try { $script:WebController.CoreWebView2.PostWebMessageAsJson('{"op":"dragenter"}') } catch { }
     }
@@ -1245,8 +1246,13 @@ function Step-NovaWebViewInit {
                     Write-Log "WebView2 初始化完成"
                     # 注册自己的 IDropTarget（OLE拖拽），覆盖 WebView2 的，获取文件绝对路径并显示 dropzone
                     try {
-                        $form.RegisterNovaDropTarget()
-                        Write-Log "IDropTarget 已注册"
+                        $hr = $form.RegisterNovaDropTarget()
+                        Write-Log "IDropTarget 已注册 hr=0x$($hr.ToString('X8'))"
+                        # WebView2 可能在运行时重新注册自己的 IDropTarget，用定时器每秒重新注册我们的
+                        $script:DragReRegisterTimer = New-Object System.Windows.Forms.Timer
+                        $script:DragReRegisterTimer.Interval = 1000
+                        $script:DragReRegisterTimer.Add_Tick({ try { $form.RegisterNovaDropTarget() | Out-Null } catch { } })
+                        $script:DragReRegisterTimer.Start()
                     } catch { Write-Log "RegisterNovaDropTarget error: $_" }
                     $script:PreheatQueue = New-IconPreheatQueue
                     Initialize-NovaDebugHook
