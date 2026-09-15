@@ -784,7 +784,7 @@
 
 <div class="toast" id="toast" data-page-node-id="vKBQwDXheY36b1P0434TWG"></div>
 
-  <div class="dropzone" id="dropzone" data-page-node-id="mWdeNPNHbI98lNAk0I2HCN"><div class="dz-inner" data-page-node-id="NJ5iFTVvyw5lEPqOVpODRC"><div class="big" data-page-node-id="rmdCVhzazfNMHw8GdvEhnY">⬇</div><p data-page-node-id="znOM4FprYNJeL40IN1Tzaq">把快捷方式或程序拖到这里即可添加</p><div class="sub2" data-page-node-id="GRPfhsi0AIQLlhtnGA6vdk">支持一次拖入多个，也可从「开始菜单」里拖</div></div></div>
+  <div class="dropzone" id="dropzone" data-page-node-id="mWdeNPNHbI98lNAk0I2HCN"><div class="dz-inner" data-page-node-id="NJ5iFTVvyw5lEPqOVpODRC"><div class="big" data-page-node-id="rmdCVhzazfNMHw8GdvEhnY">🔗</div><p data-page-node-id="znOM4FprYNJeL40IN1Tzaq">创建快捷方式</p><div class="sub2" data-page-node-id="GRPfhsi0AIQLlhtnGA6vdk">支持任何文件 / 文件夹，一次可拖入多个</div></div></div>
 
   <div class="ctxmenu" id="ctxmenu" role="menu" aria-hidden="true" data-page-node-id="uQB6pzQsBRkJjbxGpYkhne"></div>
 
@@ -1438,16 +1438,15 @@ window.addEventListener("dragenter", e => {
 });
 window.addEventListener("dragover", e => {
   if (!isFileDrag(e)) return;
-  e.preventDefault(); e.dataTransfer.dropEffect = "copy";
+  e.preventDefault(); e.dataTransfer.dropEffect = "link";
 });
 window.addEventListener("dragleave", e => {
   if (!isFileDrag(e)) return;
   dragDepth--; if (dragDepth <= 0) { dragDepth = 0; hideDrop(); }
 });
-/* 从拖放事件里取出「文件引用」（路径 + 文件名）。
-   ⚠ 浏览器**不给绝对路径**：webkitGetAsEntry().fullPath 拿到的只是文件名（形如 /Chrome.lnk），
-   file.path 又只有 Electron / WebView2 之类的宿主才提供。所以这里能拿多少给多少，
-   拿不到的交给宿主按文件名在 桌面 / 开始菜单 / 快速启动 / 下载 里找回来（宿主 Resolve-AppRef）。 */
+/* 从拖放事件里取出「文件引用」（绝对路径 + 文件名）。
+   WebView2 宿主提供 file.path 即绝对路径，直接记录，不做搜索解析。
+   支持任何文件和文件夹。 */
 function fileRefsFrom(e) {
   const out = [];
   const push = (path, name) => {
@@ -1469,10 +1468,10 @@ function fileRefsFrom(e) {
         // WebView2/Chromium 扩展：file.path 即绝对路径，优先使用
         if (file.path) path = file.path;
       }
-      // file.path 拿不到时（如 UWP/搜索结果），再尝试 entry.fullPath
+      // file.path 拿不到时，尝试 entry（文件或文件夹）
       if (!path) {
         try { entry = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null; } catch (_) {}
-        if (entry && entry.isFile) {
+        if (entry && (entry.isFile || entry.isDirectory)) {
           if (!name && entry.name) name = entry.name;
           let fp = entry.fullPath || "";
           if (fp[0] === "/") fp = fp.slice(1);

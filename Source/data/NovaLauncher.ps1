@@ -1281,11 +1281,16 @@ function Invoke-NovaApi([string]$op, $data) {
         }
         'add' {
             $dropP = [string]$data.p; $dropN = [string]$data.n
-            $rp = Resolve-AppRef $dropP $dropN
-            if ($rp) { $dropP = $rp }
+            # 绝对路径直接记录，不做搜索解析
+            $isRooted = $false
+            try { $isRooted = [System.IO.Path]::IsPathRooted($dropP) } catch { }
+            if (-not $isRooted -and $dropP -notlike 'shell:*') {
+                $rp = Resolve-AppRef $dropP $dropN
+                if ($rp) { $dropP = $rp }
+            }
             $r = Add-AppPath $dropP $dropN ([string]$data.k)
             if ($r) { return [pscustomobject]@{ ok = $true; name = $r.name; path = $r.path; msg = "已添加 $($r.name)" } }
-            else { return [pscustomobject]@{ ok = $false; msg = '未找到该文件（已查桌面 / 开始菜单 / 快速启动 / 下载）' } }
+            else { return [pscustomobject]@{ ok = $false; msg = '文件不存在或路径无效' } }
         }
         'addbatch' {
             $items = @()
@@ -1295,8 +1300,12 @@ function Invoke-NovaApi([string]$op, $data) {
                 $p = [string]$it.p; $n = [string]$it.n; $k = [string]$it.k
                 $usable = $false
                 if ($p -like 'shell:*') { $usable = $true }
-                else { try { if ([System.IO.Path]::IsPathRooted($p) -and (Test-Path -LiteralPath $p)) { $usable = $true } } catch { } }
+                else {
+                    # 绝对路径直接记录，不做搜索解析（拖拽时前端已提供 file.path 绝对路径）
+                    try { if ([System.IO.Path]::IsPathRooted($p)) { $usable = $true } } catch { }
+                }
                 if (-not $usable) {
+                    # 只有非绝对路径（纯文件名）才走搜索兜底
                     $rp = Resolve-AppRef $p $n
                     if ($rp) {
                         $p = $rp
