@@ -1172,7 +1172,7 @@ function Invoke-NovaApi([string]$op, $data) {
                 return [pscustomobject]@{ ok = $false; msg = 'no icon' }
             }
             $apps = Get-Apps; $i = -1
-            if ($data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
+            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
             if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = 'no such app' } }
             $size = 256
             if ($data.s) { [int]::TryParse([string]$data.s, [ref]$size) | Out-Null }
@@ -1202,7 +1202,7 @@ function Invoke-NovaApi([string]$op, $data) {
         }
         'launch' {
             $apps = Get-Apps; $i = -1
-            if ($data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
+            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
             if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
             return (Launch-App $apps[$i])
         }
@@ -1274,7 +1274,7 @@ function Invoke-NovaApi([string]$op, $data) {
         }
         'remove' {
             $apps = Get-Apps; $i = -1
-            if ($data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
+            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
             if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
             $name = $apps[$i].name; $rest = @()
             for ($k = 0; $k -lt $apps.Count; $k++) { if ($k -ne $i) { $rest += $apps[$k] } }
