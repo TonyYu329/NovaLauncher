@@ -642,7 +642,7 @@
 <div class="scrim" id="scrim" data-page-node-id="UHGGLpsvThFOF1ppjcPDxS"></div>
 <aside class="drawer" id="drawer" data-page-node-id="4CLLsIfS4pwUMPO4iw4AaF">
   <h2 data-page-node-id="veu3j4iuF1V7ZNdv9pgpvH">设置</h2>
-  <div class="sub" id="drawerSub" data-page-node-id="jmxQMJdfVJSnH7Gw1bUid5">Nova Launcher · V1.0</div>
+  <div class="sub" id="drawerSub" data-page-node-id="jmxQMJdfVJSnH7Gw1bUid5">Nova Launcher · V0.0.5</div>
 
   <div class="sec" id="appearanceSec">
     <h3>外观</h3>
@@ -2231,7 +2231,7 @@ async function init() {
     if (HOSTED) {
       document.body.classList.add("hosted");      // 显示窗口控制按钮（演示模式下隐藏）
       connOk();                                   // 绿点，正常态不出文字
-      $("drawerSub").textContent = "Nova Launcher · V1.0 · " + (d.dataDir || "");
+      $("drawerSub").textContent = "Nova Launcher · V0.0.5 · " + (d.dataDir || "");
     } else {
       setConn("offline", "未连接宿主（演示模式：直接打开的 HTML，请用 NovaLauncher.bat 启动）");
       $("drawerSub").textContent = "演示模式 · 未连接宿主（请用 NovaLauncher.bat 启动）";
