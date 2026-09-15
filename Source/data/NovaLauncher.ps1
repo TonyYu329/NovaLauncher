@@ -400,17 +400,70 @@ using System.Windows.Forms;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
+using System.Runtime.InteropServices.ComTypes;
+
+[ComImport]
+[Guid("00000122-0000-0000-C000-000000000046")]
+[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IDropTarget {
+    void DragEnter(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, long pt, ref int pdwEffect);
+    void DragOver(int grfKeyState, long pt, ref int pdwEffect);
+    void DragLeave();
+    void Drop(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, long pt, ref int pdwEffect);
+}
+
+public class NovaDropTarget : IDropTarget {
+    public Action<string[]> OnDrop;
+    public Action OnDragEnter;
+    public Action OnDragLeave;
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern uint DragQueryFile(IntPtr hDrop, uint iFile, System.Text.StringBuilder lpszFile, uint cch);
+    [DllImport("shell32.dll")]
+    static extern void DragFinish(IntPtr hDrop);
+    static string[] GetFiles(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj) {
+        var fmt = new FORMATETC { cfFormat = 15, dwAspect = DVASPECT.DVASPECT_CONTENT, lindex = -1, tymed = TYMED.TYMED_HGLOBAL };
+        var medium = new STGMEDIUM();
+        try {
+            pDataObj.GetData(ref fmt, out medium);
+            IntPtr hDrop = medium.unionmember;
+            if (hDrop == IntPtr.Zero) return null;
+            uint count = DragQueryFile(hDrop, 0xFFFFFFFF, null, 0);
+            var files = new List<string>();
+            for (uint i = 0; i < count; i++) {
+                uint len = DragQueryFile(hDrop, i, null, 0);
+                var sb = new System.Text.StringBuilder((int)len + 1);
+                DragQueryFile(hDrop, i, sb, (uint)sb.Capacity);
+                files.Add(sb.ToString());
+            }
+            DragFinish(hDrop);
+            return files.ToArray();
+        } catch { return null; }
+    }
+    public void DragEnter(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, long pt, ref int pdwEffect) {
+        var files = GetFiles(pDataObj);
+        if (files != null && files.Length > 0) { pdwEffect = 4; if (OnDragEnter != null) OnDragEnter(); } else { pdwEffect = 0; }
+    }
+    public void DragOver(int grfKeyState, long pt, ref int pdwEffect) { pdwEffect = 4; }
+    public void DragLeave() { if (OnDragLeave != null) OnDragLeave(); }
+    public void Drop(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, int grfKeyState, long pt, ref int pdwEffect) {
+        var files = GetFiles(pDataObj);
+        pdwEffect = (files != null && files.Length > 0) ? 4 : 0;
+        if (files != null && files.Length > 0 && OnDrop != null) OnDrop(files);
+    }
+}
+
 public class NovaForm : Form {
     public Action NovaDpiChanged;
     public Action<string[]> NovaFilesDropped;
+    public Action NovaDragEnter;
+    public Action NovaDragLeave;
+    NovaDropTarget _dropTarget;
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
-    // FormBorderStyle=None 时 WinForms 会忽略 MinimizeBox，导致任务栏点击无法最小化/恢复。
-    // 这里强制添加 WS_MINIMIZEBOX，无边框窗口不显示标题栏所以无视觉影响。
     protected override CreateParams CreateParams {
         get {
             CreateParams cp = base.CreateParams;
             cp.Style |= 0x20000;   // WS_MINIMIZEBOX
-            cp.ExStyle |= 0x10;    // WS_EX_ACCEPTFILES —— 接收 WM_DROPFILES
+            cp.ExStyle |= 0x10;    // WS_EX_ACCEPTFILES
             return cp;
         }
     }
@@ -418,6 +471,21 @@ public class NovaForm : Form {
     static extern uint DragQueryFile(IntPtr hDrop, uint iFile, System.Text.StringBuilder lpszFile, uint cch);
     [DllImport("shell32.dll")]
     static extern void DragFinish(IntPtr hDrop);
+    [DllImport("ole32.dll")]
+    static extern int RegisterDragDrop(IntPtr hWnd, IDropTarget pDropTarget);
+    [DllImport("ole32.dll")]
+    static extern int RevokeDragDrop(IntPtr hWnd);
+    public void RegisterNovaDropTarget() {
+        if (_dropTarget == null) {
+            _dropTarget = new NovaDropTarget();
+            _dropTarget.OnDrop = files => { if (NovaFilesDropped != null) NovaFilesDropped(files); };
+            _dropTarget.OnDragEnter = () => { if (NovaDragEnter != null) NovaDragEnter(); };
+            _dropTarget.OnDragLeave = () => { if (NovaDragLeave != null) NovaDragLeave(); };
+        }
+        RevokeDragDrop(this.Handle);
+        int hr = RegisterDragDrop(this.Handle, _dropTarget);
+        System.Diagnostics.Debug.WriteLine("RegisterNovaDropTarget hr=0x" + hr.ToString("X8"));
+    }
     protected override void WndProc(ref Message m) {
         if (m.Msg == 0x02E0) { // WM_DPICHANGED
             RECT rc = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
@@ -426,7 +494,7 @@ public class NovaForm : Form {
             if (NovaDpiChanged != null) NovaDpiChanged();
             m.Result = IntPtr.Zero; return;
         }
-        if (m.Msg == 0x0233) { // WM_DROPFILES —— 原生文件拖拽，WebView2 前端拿不到绝对路径
+        if (m.Msg == 0x0233) { // WM_DROPFILES 后备
             IntPtr hDrop = m.WParam;
             uint count = DragQueryFile(hDrop, 0xFFFFFFFF, null, 0);
             var files = new List<string>();
@@ -1101,6 +1169,16 @@ $form.NovaFilesDropped = {
         }
     } catch { Write-Log "NovaFilesDropped error: $_" }
 }
+$form.NovaDragEnter = {
+    if ($script:WebController) {
+        try { $script:WebController.CoreWebView2.PostWebMessageAsJson('{"op":"dragenter"}') } catch { }
+    }
+}
+$form.NovaDragLeave = {
+    if ($script:WebController) {
+        try { $script:WebController.CoreWebView2.PostWebMessageAsJson('{"op":"dragleave"}') } catch { }
+    }
+}
 
 # ---------------------------------------------------------------------------
 # WebView2 层：异步初始化（Form.Shown + Timer 轮询，不阻塞 UI）
@@ -1165,16 +1243,11 @@ function Step-NovaWebViewInit {
                     $script:InitTimer.Dispose()
                     $script:InitStep = 3
                     Write-Log "WebView2 初始化完成"
-                    # WebView2 注册了 IDropTarget，会禁用 WM_DROPFILES。撤销它，使 NovaForm.WndProc 能接收 WM_DROPFILES。
+                    # 注册自己的 IDropTarget（OLE拖拽），覆盖 WebView2 的，获取文件绝对路径并显示 dropzone
                     try {
-                        Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-public class OleDrag { [DllImport("ole32.dll")] public static extern int RevokeDragDrop(IntPtr hWnd); }
-'@ -ErrorAction SilentlyContinue
-                        $hr = [OleDrag]::RevokeDragDrop($form.Handle)
-                        Write-Log "RevokeDragDrop hr=0x$($hr.ToString('X8'))"
-                    } catch { Write-Log "RevokeDragDrop error: $_" }
+                        $form.RegisterNovaDropTarget()
+                        Write-Log "IDropTarget 已注册"
+                    } catch { Write-Log "RegisterNovaDropTarget error: $_" }
                     $script:PreheatQueue = New-IconPreheatQueue
                     Initialize-NovaDebugHook
                 }
