@@ -1152,15 +1152,23 @@ function applyStyle() {
       root.style.setProperty("--panel", isLight ? "rgba(255,255,255,0.60)" : "rgba(28,28,40,0.52)");
       root.classList.add("glass-on"); root.classList.remove("glass-off");
     } else {
-      // bgBlur=0 纯透明：桌面清晰透出，不叠磨砂层；液态玻璃仅留极淡色调（随背景透明度）
-      const f = enabled ? winOpacity : 0;
+      // bgBlur=0 纯透明：桌面清晰透出；主底色不透明度严格等于 windowOpacity，实现 20%~100% 连续中间透明度
+      const baseA = winOpacity;  // 0.2~0.999，值越大越不透明、透出桌面越少
       if (enabled && bgStyle === "liquid" && backdrop) {
+        const g = 0.12 * winOpacity;
+        const c1 = isLight ? "240,245,255" : "20,20,40";
+        const c2 = isLight ? "255,255,255" : "15,15,30";
         backdrop.style.background =
-          `radial-gradient(ellipse 80% 60% at 20% 10%, rgba(108,99,255,${c3(0.12*f)}), transparent 60%),` +
-          `radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,180,255,${c3(0.10*f)}), transparent 55%),` +
-          `radial-gradient(ellipse 70% 60% at 50% 90%, rgba(255,120,190,${c3(0.08*f)}), transparent 60%)`;
-      } else if (backdrop) { backdrop.style.background = "transparent"; }
-      root.style.setProperty("--panel", isLight ? `rgba(255,255,255,${c3(0.55*f+0.12)})` : `rgba(28,28,40,${c3(0.50*f+0.10)})`);
+          `radial-gradient(ellipse 80% 60% at 20% 10%, rgba(108,99,255,${c3(g)}), transparent 60%),` +
+          `radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,180,255,${c3(g*0.8)}), transparent 55%),` +
+          `radial-gradient(ellipse 70% 60% at 50% 90%, rgba(255,120,190,${c3(g*0.7)}), transparent 60%),` +
+          `linear-gradient(135deg, rgba(${c1},${c3(baseA)}), rgba(${c2},${c3(baseA)}))`;
+        root.style.setProperty("--bg-base", "rgba(0,0,0,0)");
+      } else {
+        if (backdrop) { backdrop.style.background = "transparent"; }
+        root.style.setProperty("--bg-base", isLight ? `rgba(238,240,245,${c3(baseA)})` : `rgba(16,16,20,${c3(baseA)})`);
+      }
+      root.style.setProperty("--panel", isLight ? `rgba(255,255,255,${c3(0.55*winOpacity+0.12)})` : `rgba(28,28,40,${c3(0.50*winOpacity+0.10)})`);
       root.classList.toggle("glass-on", enabled);
       root.classList.toggle("glass-off", !enabled);
     }
