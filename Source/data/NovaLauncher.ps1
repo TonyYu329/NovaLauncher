@@ -419,13 +419,27 @@ public class NovaForm : Form {
     static extern uint DragQueryFile(IntPtr hDrop, uint iFile, System.Text.StringBuilder lpszFile, uint cch);
     [DllImport("shell32.dll")]
     static extern void DragFinish(IntPtr hDrop);
-    protected override void OnHandleCreated(EventArgs e) {
-        base.OnHandleCreated(e);
-        // 启用 WM_DROPFILES 接收（不依赖 WinForms AllowDrop，避免注册 IDropTarget 而禁用 WM_DROPFILES）
-        DragAcceptFiles(this.Handle, true);
-    }
     public void EnableFileDrop() { DragAcceptFiles(this.Handle, true); }
+    public void DisableFileDrop() { try { DragAcceptFiles(this.Handle, false); } catch { } }
     protected override void WndProc(ref Message m) {
+        // WM_DROPFILES：使用 Win32 文件拖放，不使用 OLE IDropTarget，避免与 WebView2 的拖放机制冲突。
+        if (m.Msg == 0x0233) {
+            try {
+                uint count = DragQueryFile(m.WParam, 0xFFFFFFFF, null, 0);
+                var files = new List<string>();
+                for (uint i = 0; i < count; i++) {
+                    var sb = new System.Text.StringBuilder(32768);
+                    uint len = DragQueryFile(m.WParam, i, sb, (uint)sb.Capacity);
+                    if (len > 0) files.Add(sb.ToString());
+                }
+                DragFinish(m.WParam);
+                if (NovaFilesDropped != null && files.Count > 0) NovaFilesDropped(files.ToArray());
+            } catch {
+                try { DragFinish(m.WParam); } catch { }
+            }
+            m.Result = IntPtr.Zero;
+            return;
+        }
         if (m.Msg == 0x02E0) { // WM_DPICHANGED
             RECT rc = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
             this.Location = new Point(rc.Left, rc.Top);
@@ -1032,6 +1046,8 @@ $form.MinimizeBox     = $true
 $form.BackColor       = [System.Drawing.Color]::FromArgb(16, 16, 20)
 $form.Icon            = New-Object System.Drawing.Icon((Join-Path $DataDir 'nova-logo.ico'))
 $form.Text            = 'Nova Launcher'
+# 使用纯 WM_DROPFILES 文件拖放；不注册 IDropTarget，不设置 AllowDrop。
+try { $form.EnableFileDrop(); Write-Log 'NovaForm 已启用 WM_DROPFILES 文件拖放' } catch { Write-Log "启用 WM_DROPFILES 失败：$($_.Exception.Message)" }
 # 强制设置任务栏图标（AppUserModelID + WM_SETICON）
 Set-NovaTaskbarIcon (Join-Path $DataDir 'nova-logo.ico')
 
@@ -1158,6 +1174,8 @@ function Step-NovaWebViewInit {
                     }
                     $script:WebController = $script:InitCtrlTask.Result
                     $script:WebView = $script:WebController.CoreWebView2
+                    # WebView2 初始化后立即重新启用 WM_DROPFILES（防止 WebView2 改变窗口状态）
+                    try { $form.EnableFileDrop(); Write-Log 'WebView2 初始化后重新启用 WM_DROPFILES 文件拖放' } catch { Write-Log "WebView2 初始化后启用文件拖放失败：$($_.Exception.Message)" }
                     try { $script:WebController.DefaultBackgroundColor = [System.Drawing.Color]::Transparent } catch { Write-Log "Transparent bg not supported: $($_.Exception.Message)" }
                     $script:WebController.Bounds = $form.ClientRectangle
                     $script:WebController.IsVisible = $true
@@ -1168,8 +1186,6 @@ function Step-NovaWebViewInit {
                     $script:InitTimer.Dispose()
                     $script:InitStep = 3
                     Write-Log "WebView2 初始化完成"
-                    # WebView2 初始化后重新启用 WM_DROPFILES（防止 WebView2 改变窗口状态）
-                    try { $form.EnableFileDrop(); Write-Log "DragAcceptFiles 已启用" } catch { Write-Log "EnableFileDrop error: $_" }
                     $script:PreheatQueue = New-IconPreheatQueue
                     Initialize-NovaDebugHook
                 }
@@ -1592,6 +1608,7 @@ try {
     })
 
     $form.Add_FormClosed({
+        try { $form.DisableFileDrop() } catch { }
         try {
             $preheatTimer.Stop()
             if ($script:WebController) { $script:WebController.Close() }
