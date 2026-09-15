@@ -728,33 +728,22 @@ function Launch-App($item) {
 }
 
 # ---------------------------------------------------------------------------
-# 文件选择对话框（独立 STA 线程）
+# 文件选择对话框（直接在 UI 线程显示，与 pickImage 一致，避免跨线程崩溃）
 # ---------------------------------------------------------------------------
 function Show-OpenFileDialog {
-    $pack = [System.Collections.Hashtable]::Synchronized(@{
-        files = [System.Collections.ArrayList]::new()
-        error = ''
-        evt   = New-Object System.Threading.ManualResetEvent($false)
-    })
-    $sb = {
-        param($pack)
-        try {
-            $d = New-Object System.Windows.Forms.OpenFileDialog
-            $d.Title = '选择要添加到 Nova Launcher 的应用'
-            $d.Filter = '应用程序 (*.exe;*.lnk;*.bat;*.cmd)|*.exe;*.lnk;*.bat;*.cmd|所有文件 (*.*)|*.*'
-            $d.Multiselect = $true
-            $d.RestoreDirectory = $true
-            $d.CheckFileExists = $true
-            if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-                foreach ($f in $d.FileNames) { [void]$pack.files.Add($f) }
-            }
-        } catch { $pack.error = $_.Exception.Message } finally { $pack.evt.Set() }
+    Add-Type -AssemblyName System.Windows.Forms
+    $d = New-Object System.Windows.Forms.OpenFileDialog
+    $d.Title = '选择要添加到 Nova Launcher 的应用'
+    $d.Filter = '应用程序 (*.exe;*.lnk;*.bat;*.cmd)|*.exe;*.lnk;*.bat;*.cmd|所有文件 (*.*)|*.*'
+    $d.Multiselect = $true
+    $d.RestoreDirectory = $true
+    $d.CheckFileExists = $true
+    $files = [System.Collections.ArrayList]::new()
+    $owner = if ($form) { $form } else { $null }
+    if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
+        foreach ($f in $d.FileNames) { [void]$files.Add($f) }
     }
-    $th = New-Object System.Threading.Thread([System.Threading.ParameterizedThreadStart]$sb)
-    $th.SetApartmentState([System.Threading.ApartmentState]::STA)
-    $th.Start($pack)
-    $pack.evt.WaitOne() | Out-Null
-    return $pack.files
+    return $files
 }
 
 # ---------------------------------------------------------------------------
