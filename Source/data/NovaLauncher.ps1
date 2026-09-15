@@ -1289,7 +1289,7 @@ function Invoke-NovaApi([string]$op, $data) {
             $apps = Get-Apps; $n = @($apps).Count; $idx = -1
             $wantPath = [string]$data.p
             if ($wantPath) { for ($k = 0; $k -lt $n; $k++) { if ([string]$apps[$k].path -eq $wantPath) { $idx = $k; break } } }
-            if ($idx -lt 0 -and $data.i) { [int]::TryParse([string]$data.i, [ref]$idx) | Out-Null }
+            if ($idx -lt 0 -and $null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$idx) | Out-Null }
             if ($idx -lt 0 -or $idx -ge $n) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
             $old = [string]$apps[$idx].name
             if ($old -ne $newName) { $apps[$idx].name = $newName; Save-Apps $apps; Write-Log "重命名：$old -> $newName" }
@@ -1306,6 +1306,31 @@ function Invoke-NovaApi([string]$op, $data) {
             $item = $list[$from]; $list.RemoveAt($from); $list.Insert($to, $item)
             Save-Apps @($list)
             return [pscustomobject]@{ ok = $true }
+        }
+        'pickone' {
+            Add-Type -AssemblyName System.Windows.Forms
+            $d = New-Object System.Windows.Forms.OpenFileDialog
+            $d.Title = '选择应用程序'
+            $d.Filter = '应用程序 (*.exe;*.lnk;*.bat;*.cmd)|*.exe;*.lnk;*.bat;*.cmd|所有文件 (*.*)|*.*'
+            $d.Multiselect = $false
+            $d.RestoreDirectory = $true
+            $d.CheckFileExists = $true
+            if ($d.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
+                return [pscustomobject]@{ ok = $true; path = $d.FileName; name = [System.IO.Path]::GetFileNameWithoutExtension($d.FileName) }
+            }
+            return [pscustomobject]@{ ok = $false; cancelled = $true }
+        }
+        'editpath' {
+            $apps = Get-Apps; $i = -1
+            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
+            if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
+            $newPath = [string]$data.p
+            if ([string]::IsNullOrWhiteSpace($newPath)) { return [pscustomobject]@{ ok = $false; msg = '路径不能为空' } }
+            $oldPath = [string]$apps[$i].path
+            $apps[$i].path = $newPath
+            Save-Apps $apps
+            Write-Log "修改路径：$oldPath -> $newPath"
+            return [pscustomobject]@{ ok = $true; path = $newPath; msg = '路径已更新' }
         }
         'setting' {
             $k = [string]$data.k; $v = $data.v; $s = Get-Settings

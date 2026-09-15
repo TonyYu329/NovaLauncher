@@ -523,8 +523,8 @@
     transition:opacity var(--anim-fast) var(--ease), transform var(--anim-fast) var(--ease);
   }
   .ctxmenu.open{ opacity:1; pointer-events:auto; transform:scale(1); }
-  .ctxmenu .hd{ padding:7px 11px 5px; font-size:11.5px; color:var(--text-3);
-    max-width:228px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ctxmenu .hd{ padding:7px 11px 5px; font-size:12.5px; font-weight:700; color:var(--text-1);
+    max-width:228px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; letter-spacing:.2px; }
   .ctxmenu .sep{ height:1px; margin:5px 7px; background:var(--stroke); }
   .ctxmenu .mi{
     display:flex; align-items:center; gap:10px; width:100%; padding:9px 11px;
@@ -904,6 +904,8 @@ const API = {
   async pickImage()          { return HOSTED ? novaSend("pickImage")   : { ok: false, cancelled: true }; },
   async remove(i)            { return HOSTED ? novaSend("remove", { i }) : demoRemove(i); },
   async rename(i, p, name)   { return HOSTED ? novaSend("rename", { i, p, n: name }) : demoRename(i, name); },
+  async pickone()            { return HOSTED ? novaSend("pickone") : { ok:false, cancelled:true }; },
+  async editpath(i, p)       { return HOSTED ? novaSend("editpath", { i, p }) : { ok:false, msg:"演示模式" }; },
   async move(from, to)       { return HOSTED ? novaSend("move", { from, to }) : demoMove(from, to); },
   async setting(k, v)        { return HOSTED ? novaSend("setting", { k, v }) : demoSetting(k, v); },
   async reveal(i)            { return HOSTED ? novaSend("reveal", { i }) : { ok:false, msg:"演示模式" }; },
@@ -1574,12 +1576,24 @@ function buildCtx(i, app, mode) {
   const reflow = m => { buildCtx(i, app, m); positionCtx(ctxPos.x, ctxPos.y); };
 
   if (mode === "edit") { buildRenameEditor(i, app, reflow); return; }
+  if (mode === "editpath") { buildPathEditor(i, app, reflow); return; }
 
   const missing = app.exists === false;
   add("▶", missing ? "文件已失效" : "打开", () => { closeCtx(); launchApp(i, app); }, { disabled: missing });
   add("📂", "打开文件位置", () => { closeCtx(); revealApp(i, app); },
       { disabled: !app.path || app.path.indexOf("shell:") === 0 });
   add("✎", "重命名", () => reflow("edit"));
+  add("📝", "编辑应用地址", () => reflow("editpath"));
+  add("🔍", "选择应用", async () => {
+    closeCtx();
+    try {
+      const r = await API.pickone();
+      if (r.cancelled || !r.ok) return;
+      const up = await API.editpath(i, r.path);
+      if (up.ok) { await refresh(); toast("路径已更新：" + r.path); }
+      else { toast(up.msg || "更新失败", true); }
+    } catch (e) { toast("选择失败：" + e.message, true); }
+  });
 
   ctx.appendChild(Object.assign(document.createElement("div"), { className: "sep" }));
 
@@ -1626,6 +1640,48 @@ function buildRenameEditor(i, app, reflow) {
     else if (ev.key === "Escape") { ev.preventDefault(); reflow("normal"); }
   };
   // 焦点等菜单真正可见后再给：菜单此刻才加上 .open，过早 focus 在应用窗口里可能落空
+  setTimeout(() => { try { inp.focus(); inp.select(); } catch (e) {} }, 0);
+}
+
+/* 路径编辑态：输入框预填当前路径，回车确定、Esc / 取消 退出。
+   确定后调用 API.editpath 更新路径并刷新。 */
+function buildPathEditor(i, app, reflow) {
+  const wrap = document.createElement("div");
+  wrap.className = "ren";
+  const inp = document.createElement("input");
+  inp.type = "text";
+  inp.value = app.path || "";
+  inp.maxLength = 260;
+  inp.setAttribute("aria-label", "应用路径");
+  const ok = document.createElement("button");
+  ok.type = "button"; ok.className = "primary"; ok.textContent = "确定";
+  const cancel = document.createElement("button");
+  cancel.type = "button"; cancel.textContent = "取消";
+  wrap.appendChild(inp); wrap.appendChild(ok); wrap.appendChild(cancel);
+  ctx.appendChild(wrap);
+
+  const tip = document.createElement("div");
+  tip.className = "err";
+  tip.style.display = "none";
+  ctx.appendChild(tip);
+
+  const submit = async () => {
+    const v = inp.value.trim();
+    if (!v) { tip.textContent = "路径不能为空"; tip.style.display = ""; inp.focus(); return; }
+    closeCtx();
+    try {
+      const r = await API.editpath(i, v);
+      if (r.ok) { await refresh(); toast("路径已更新"); }
+      else { toast(r.msg || "更新失败", true); }
+    } catch (e) { toast("更新失败：" + e.message, true); }
+  };
+  ok.onclick = ev => { ev.stopPropagation(); submit(); };
+  cancel.onclick = ev => { ev.stopPropagation(); reflow("normal"); };
+  inp.onkeydown = ev => {
+    ev.stopPropagation();
+    if (ev.key === "Enter")  { ev.preventDefault(); submit(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); reflow("normal"); }
+  };
   setTimeout(() => { try { inp.focus(); inp.select(); } catch (e) {} }, 0);
 }
 
