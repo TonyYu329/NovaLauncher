@@ -399,28 +399,31 @@ using System;
 using System.Windows.Forms;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Collections.Generic;
-
 public class NovaForm : Form {
     public Action NovaDpiChanged;
     public Action<string[]> NovaFilesDropped;
+
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
-    // FormBorderStyle=None 时 WinForms 会忽略 MinimizeBox，强制添加 WS_MINIMIZEBOX
-    protected override CreateParams CreateParams {
-        get {
-            CreateParams cp = base.CreateParams;
-            cp.Style |= 0x20000;   // WS_MINIMIZEBOX
-            return cp;
-        }
-    }
+
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    static extern void DragAcceptFiles(IntPtr hWnd, bool fAccept);
+    private static extern void DragAcceptFiles(IntPtr hWnd, bool fAccept);
+
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    static extern uint DragQueryFile(IntPtr hDrop, uint iFile, System.Text.StringBuilder lpszFile, uint cch);
+    private static extern uint DragQueryFile(IntPtr hDrop, uint iFile, StringBuilder lpszFile, uint cch);
+
     [DllImport("shell32.dll")]
-    static extern void DragFinish(IntPtr hDrop);
-    public void EnableFileDrop() { DragAcceptFiles(this.Handle, true); }
-    public void DisableFileDrop() { try { DragAcceptFiles(this.Handle, false); } catch { } }
+    private static extern void DragFinish(IntPtr hDrop);
+
+    public void EnableNovaFileDrop() {
+        DragAcceptFiles(this.Handle, true);
+    }
+
+    public void DisableNovaFileDrop() {
+        try { DragAcceptFiles(this.Handle, false); } catch { }
+    }
+
     protected override void WndProc(ref Message m) {
         // WM_DROPFILES：使用 Win32 文件拖放，不使用 OLE IDropTarget，避免与 WebView2 的拖放机制冲突。
         if (m.Msg == 0x0233) {
@@ -428,7 +431,7 @@ public class NovaForm : Form {
                 uint count = DragQueryFile(m.WParam, 0xFFFFFFFF, null, 0);
                 var files = new List<string>();
                 for (uint i = 0; i < count; i++) {
-                    var sb = new System.Text.StringBuilder(32768);
+                    var sb = new StringBuilder(32768);
                     uint len = DragQueryFile(m.WParam, i, sb, (uint)sb.Capacity);
                     if (len > 0) files.Add(sb.ToString());
                 }
@@ -440,24 +443,12 @@ public class NovaForm : Form {
             m.Result = IntPtr.Zero;
             return;
         }
-        if (m.Msg == 0x02E0) { // WM_DPICHANGED
+
+        if (m.Msg == 0x02E0) {
             RECT rc = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
             this.Location = new Point(rc.Left, rc.Top);
             this.Size = new Size(rc.Right - rc.Left, rc.Bottom - rc.Top);
             if (NovaDpiChanged != null) NovaDpiChanged();
-            m.Result = IntPtr.Zero; return;
-        }
-        if (m.Msg == 0x0233) { // WM_DROPFILES —— 原生文件拖拽，直接取绝对路径
-            IntPtr hDrop = m.WParam;
-            uint count = DragQueryFile(hDrop, 0xFFFFFFFF, null, 0);
-            var files = new List<string>();
-            for (uint i = 0; i < count; i++) {
-                var sb = new System.Text.StringBuilder(32768);
-                DragQueryFile(hDrop, i, sb, (uint)sb.Capacity);
-                if (sb.Length > 0) files.Add(sb.ToString());
-            }
-            DragFinish(hDrop);
-            if (NovaFilesDropped != null && files.Count > 0) NovaFilesDropped(files.ToArray());
             m.Result = IntPtr.Zero; return;
         }
         base.WndProc(ref m);
@@ -692,42 +683,6 @@ function Resolve-AppRefInner([string]$Ref, [string]$Hint = '') {
             $lnk = @($hits | Where-Object { $_ -like '*.lnk' } | Sort-Object)
             $pick = if ($lnk.Count) { $lnk[0] } else { (@($hits | Sort-Object))[0] }
             return $pick
-        }
-    }
-    # 兜底：Windows App Paths 注册表（已安装应用的标准 exe→路径映射，如 Evernote.exe）
-    foreach ($n in $want) {
-        $lk = $n.ToLower()
-        foreach ($base in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths',
-                            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths')) {
-            $key = Join-Path $base $lk
-            try {
-                if (Test-Path -LiteralPath $key) {
-                    $val = (Get-ItemProperty -LiteralPath $key).'(default)'
-                    if ($val) {
-                        $val = [string]$val
-                        if ($val -match '^"([^"]+)"') { $val = $Matches[1] }
-                        try { if (Test-Path -LiteralPath $val) { return (Get-Item -LiteralPath $val).FullName } } catch { }
-                    }
-                }
-            } catch { }
-        }
-    }
-    # 最终兜底：常见安装目录浅层递归搜索（Program Files / AppData\Local\Programs）
-    $installRoots = @(
-        ${env:ProgramFiles},
-        ${env:ProgramFiles(x86)},
-        (Join-Path $env:LOCALAPPDATA 'Programs')
-    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Container) }
-    foreach ($n in $want) {
-        $lk = $n.ToLower()
-        foreach ($root in $installRoots) {
-            try {
-                $found = @(Get-ChildItem -LiteralPath $root -Recurse -File -Depth 3 -Filter $n -ErrorAction SilentlyContinue)
-                if ($found.Count -gt 0) {
-                    $pick = @($found | Sort-Object FullName)[0]
-                    return $pick.FullName
-                }
-            } catch { }
         }
     }
     return $null
@@ -1041,18 +996,79 @@ $form = New-Object NovaForm
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
 $form.ShowInTaskbar   = $true
-$form.MaximizeBox     = $true
-$form.MinimizeBox     = $true
+$form.MaximizeBox     = $false
+$form.MinimizeBox     = $false
 $form.BackColor       = [System.Drawing.Color]::FromArgb(16, 16, 20)
 $form.Icon            = New-Object System.Drawing.Icon((Join-Path $DataDir 'nova-logo.ico'))
 $form.Text            = 'Nova Launcher'
 # 使用纯 WM_DROPFILES 文件拖放；不注册 IDropTarget，不设置 AllowDrop。
-try { $form.EnableFileDrop(); Write-Log 'NovaForm 已启用 WM_DROPFILES 文件拖放' } catch { Write-Log "启用 WM_DROPFILES 失败：$($_.Exception.Message)" }
+try { $form.EnableNovaFileDrop(); Write-Log 'NovaForm 已启用 WM_DROPFILES 文件拖放' } catch { Write-Log "启用 WM_DROPFILES 失败：$($_.Exception.Message)" }
 # 强制设置任务栏图标（AppUserModelID + WM_SETICON）
 Set-NovaTaskbarIcon (Join-Path $DataDir 'nova-logo.ico')
 
 $form.NovaDpiChanged = {
     if ($script:WebController) { $script:WebController.Bounds = $form.ClientRectangle }
+}
+
+# ---------------------------------------------------------------------------
+# 原生文件拖放：WM_DROPFILES -> Add-AppPath
+# 这里只记录真实文件路径到 apps.json，不创建 .lnk 文件。
+# ---------------------------------------------------------------------------
+$form.NovaFilesDropped = {
+    param([string[]]$files)
+
+    if (-not $files -or $files.Count -eq 0) { return }
+    Write-Log "收到文件拖拽：$($files -join ' | ')"
+
+    $added = @()
+    $failed = @()
+    $allowed = @('.exe', '.lnk', '.bat', '.cmd')
+
+    foreach ($file in $files) {
+        $full = [string]$file
+        try {
+            if ([string]::IsNullOrWhiteSpace($full)) {
+                throw '拖拽路径为空'
+            }
+            if (-not (Test-Path -LiteralPath $full)) {
+                throw '文件不存在或已被移动'
+            }
+
+            try { $full = (Get-Item -LiteralPath $full -ErrorAction Stop).FullName } catch { }
+            $ext = [System.IO.Path]::GetExtension($full).ToLowerInvariant()
+            if ($allowed -notcontains $ext) {
+                throw "不支持的文件类型：$ext（仅支持 .exe / .lnk / .bat / .cmd）"
+            }
+
+            $name = [System.IO.Path]::GetFileNameWithoutExtension($full)
+            $kind = $ext.TrimStart('.')
+            $r = Add-AppPath $full $name $kind
+            if ($r) {
+                $added += [pscustomobject]@{ name = [string]$r.name; path = [string]$r.path }
+                Write-Log "拖拽添加成功：$name -> $full"
+            } else {
+                throw 'Add-AppPath 返回失败'
+            }
+        } catch {
+            $reason = $_.Exception.Message
+            $failed += [pscustomobject]@{ path = $full; reason = $reason }
+            Write-Log "拖拽添加失败：$full；原因：$reason"
+        }
+    }
+
+    Write-Log "文件拖拽处理完成：成功 $($added.Count) 个，失败 $($failed.Count) 个"
+
+    # 通知前端重新读取 state，刷新首页应用列表。
+    if ($script:WebView) {
+        try {
+            $payload = @{ type = 'novaFilesDropped'; added = @($added); failed = @($failed) } |
+                ConvertTo-Json -Depth 8 -Compress
+            $script:WebView.PostWebMessageAsString($payload)
+            Write-Log '已通知前端刷新应用列表'
+        } catch {
+            Write-Log "通知前端刷新失败：$($_.Exception.Message)"
+        }
+    }
 }
 
 function Set-NovaWindowLayout([switch]$Windowed) {
@@ -1083,43 +1099,6 @@ function Set-NovaWindowLayout([switch]$Windowed) {
 $form.Add_Resize({
     if ($script:WebController) { $script:WebController.Bounds = $form.ClientRectangle }
 })
-
-# ---------------------------------------------------------------------------
-# 原生拖拽：WM_DROPFILES 在 NovaForm.WndProc 中获取绝对路径，这里直接 Add-AppPath，
-# 完成后通知 WebView2 刷新。不设置 AllowDrop、不注册 IDropTarget（会禁用 WM_DROPFILES）。
-# ---------------------------------------------------------------------------
-$form.NovaFilesDropped = {
-    param([string[]]$files)
-    try {
-        if (-not $files -or $files.Count -eq 0) { Write-Log "拖拽事件：没有收到文件"; return }
-        Write-Log "收到拖拽文件：$($files -join ' | ')"
-        $addedN = 0; $failedN = 0
-        foreach ($file in $files) {
-            try {
-                if (-not (Test-Path -LiteralPath $file)) {
-                    $failedN++
-                    Write-Log "拖拽添加失败（文件不存在）：$file"
-                    continue
-                }
-                try { $name = [System.IO.Path]::GetFileNameWithoutExtension($file.TrimEnd('\')) } catch { $name = $file }
-                $r = Add-AppPath $file $name ''
-                if ($r) { $addedN++; Write-Log "拖拽添加成功：$file" }
-                else { $failedN++; Write-Log "拖拽添加失败（Add-AppPath 返回空）：$file" }
-            } catch {
-                $failedN++
-                Write-Log "拖拽处理异常：$file -> $($_.Exception.Message)"
-            }
-        }
-        Write-Log "拖拽批量完成：成功 $addedN 个，失败 $failedN 个"
-        # 通知前端刷新应用列表
-        if ($script:WebController) {
-            try {
-                $msg = @{ op = "appsChanged"; added = $addedN; failed = $failedN } | ConvertTo-Json -Compress
-                $script:WebController.CoreWebView2.PostWebMessageAsJson($msg)
-            } catch { Write-Log "通知前端刷新失败：$($_.Exception.Message)" }
-        }
-    } catch { Write-Log "拖拽总处理异常：$($_.Exception.Message)" }
-}
 
 # ---------------------------------------------------------------------------
 # WebView2 层：异步初始化（Form.Shown + Timer 轮询，不阻塞 UI）
@@ -1174,8 +1153,8 @@ function Step-NovaWebViewInit {
                     }
                     $script:WebController = $script:InitCtrlTask.Result
                     $script:WebView = $script:WebController.CoreWebView2
-                    # WebView2 初始化后立即重新启用 WM_DROPFILES（防止 WebView2 改变窗口状态）
-                    try { $form.EnableFileDrop(); Write-Log 'WebView2 初始化后重新启用 WM_DROPFILES 文件拖放' } catch { Write-Log "WebView2 初始化后启用文件拖放失败：$($_.Exception.Message)" }
+                    # WebView2 初始化后再次启用 WM_DROPFILES，确保父 Form 继续接收文件拖放。
+                    try { $form.EnableNovaFileDrop(); Write-Log 'WebView2 初始化后重新启用 WM_DROPFILES 文件拖放' } catch { Write-Log "WebView2 初始化后启用文件拖放失败：$($_.Exception.Message)" }
                     try { $script:WebController.DefaultBackgroundColor = [System.Drawing.Color]::Transparent } catch { Write-Log "Transparent bg not supported: $($_.Exception.Message)" }
                     $script:WebController.Bounds = $form.ClientRectangle
                     $script:WebController.IsVisible = $true
@@ -1299,7 +1278,7 @@ function Invoke-NovaApi([string]$op, $data) {
                 return [pscustomobject]@{ ok = $false; msg = 'no icon' }
             }
             $apps = Get-Apps; $i = -1
-            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
+            if ($data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
             if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = 'no such app' } }
             $size = 256
             if ($data.s) { [int]::TryParse([string]$data.s, [ref]$size) | Out-Null }
@@ -1329,7 +1308,7 @@ function Invoke-NovaApi([string]$op, $data) {
         }
         'launch' {
             $apps = Get-Apps; $i = -1
-            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
+            if ($data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
             if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
             return (Launch-App $apps[$i])
         }
@@ -1363,16 +1342,11 @@ function Invoke-NovaApi([string]$op, $data) {
         }
         'add' {
             $dropP = [string]$data.p; $dropN = [string]$data.n
-            # 绝对路径直接记录，不做搜索解析
-            $isRooted = $false
-            try { $isRooted = [System.IO.Path]::IsPathRooted($dropP) } catch { }
-            if (-not $isRooted -and $dropP -notlike 'shell:*') {
-                $rp = Resolve-AppRef $dropP $dropN
-                if ($rp) { $dropP = $rp }
-            }
+            $rp = Resolve-AppRef $dropP $dropN
+            if ($rp) { $dropP = $rp }
             $r = Add-AppPath $dropP $dropN ([string]$data.k)
             if ($r) { return [pscustomobject]@{ ok = $true; name = $r.name; path = $r.path; msg = "已添加 $($r.name)" } }
-            else { return [pscustomobject]@{ ok = $false; msg = '文件不存在或路径无效' } }
+            else { return [pscustomobject]@{ ok = $false; msg = '未找到该文件（已查桌面 / 开始菜单 / 快速启动 / 下载）' } }
         }
         'addbatch' {
             $items = @()
@@ -1382,12 +1356,8 @@ function Invoke-NovaApi([string]$op, $data) {
                 $p = [string]$it.p; $n = [string]$it.n; $k = [string]$it.k
                 $usable = $false
                 if ($p -like 'shell:*') { $usable = $true }
-                else {
-                    # 绝对路径直接记录，不做搜索解析（拖拽时前端已提供 file.path 绝对路径）
-                    try { if ([System.IO.Path]::IsPathRooted($p)) { $usable = $true } } catch { }
-                }
+                else { try { if ([System.IO.Path]::IsPathRooted($p) -and (Test-Path -LiteralPath $p)) { $usable = $true } } catch { } }
                 if (-not $usable) {
-                    # 只有非绝对路径（纯文件名）才走搜索兜底
                     $rp = Resolve-AppRef $p $n
                     if ($rp) {
                         $p = $rp
@@ -1410,7 +1380,7 @@ function Invoke-NovaApi([string]$op, $data) {
         }
         'remove' {
             $apps = Get-Apps; $i = -1
-            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
+            if ($data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
             if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
             $name = $apps[$i].name; $rest = @()
             for ($k = 0; $k -lt $apps.Count; $k++) { if ($k -ne $i) { $rest += $apps[$k] } }
@@ -1425,7 +1395,7 @@ function Invoke-NovaApi([string]$op, $data) {
             $apps = Get-Apps; $n = @($apps).Count; $idx = -1
             $wantPath = [string]$data.p
             if ($wantPath) { for ($k = 0; $k -lt $n; $k++) { if ([string]$apps[$k].path -eq $wantPath) { $idx = $k; break } } }
-            if ($idx -lt 0 -and $null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$idx) | Out-Null }
+            if ($idx -lt 0 -and $data.i) { [int]::TryParse([string]$data.i, [ref]$idx) | Out-Null }
             if ($idx -lt 0 -or $idx -ge $n) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
             $old = [string]$apps[$idx].name
             if ($old -ne $newName) { $apps[$idx].name = $newName; Save-Apps $apps; Write-Log "重命名：$old -> $newName" }
@@ -1442,31 +1412,6 @@ function Invoke-NovaApi([string]$op, $data) {
             $item = $list[$from]; $list.RemoveAt($from); $list.Insert($to, $item)
             Save-Apps @($list)
             return [pscustomobject]@{ ok = $true }
-        }
-        'pickone' {
-            Add-Type -AssemblyName System.Windows.Forms
-            $d = New-Object System.Windows.Forms.OpenFileDialog
-            $d.Title = '选择应用程序'
-            $d.Filter = '应用程序 (*.exe;*.lnk;*.bat;*.cmd)|*.exe;*.lnk;*.bat;*.cmd|所有文件 (*.*)|*.*'
-            $d.Multiselect = $false
-            $d.RestoreDirectory = $true
-            $d.CheckFileExists = $true
-            if ($d.ShowDialog($form) -eq [System.Windows.Forms.DialogResult]::OK) {
-                return [pscustomobject]@{ ok = $true; path = $d.FileName; name = [System.IO.Path]::GetFileNameWithoutExtension($d.FileName) }
-            }
-            return [pscustomobject]@{ ok = $false; cancelled = $true }
-        }
-        'editpath' {
-            $apps = Get-Apps; $i = -1
-            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
-            if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
-            $newPath = [string]$data.p
-            if ([string]::IsNullOrWhiteSpace($newPath)) { return [pscustomobject]@{ ok = $false; msg = '路径不能为空' } }
-            $oldPath = [string]$apps[$i].path
-            $apps[$i].path = $newPath
-            Save-Apps $apps
-            Write-Log "修改路径：$oldPath -> $newPath"
-            return [pscustomobject]@{ ok = $true; path = $newPath; msg = '路径已更新' }
         }
         'setting' {
             $k = [string]$data.k; $v = $data.v; $s = Get-Settings
@@ -1608,7 +1553,7 @@ try {
     })
 
     $form.Add_FormClosed({
-        try { $form.DisableFileDrop() } catch { }
+        try { $form.DisableNovaFileDrop() } catch { }
         try {
             $preheatTimer.Stop()
             if ($script:WebController) { $script:WebController.Close() }
