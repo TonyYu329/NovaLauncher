@@ -14,7 +14,8 @@
 | 平台 | 仅 Windows 10 / Windows 11 x64（需 WebView2 Runtime） |
 | 权威文档 | `DOCS/07Nova Launcher M40 详细开发任务拆解（可直接交给豆包执行）.md` |
 | GitHub | https://github.com/TonyYu329/NovaLauncher（main） |
-| 版本 | V0.0.5（已发布 GitHub Release）；最新 commit `8f8f6e3`（已 push main） |
+| 版本 | **V0.0.8**（已发布 GitHub Release，2026-09-16）；最新 commit `9e6359a`（已 push main） |
+| 版本号来源 | 前端 `APP_META` 常量（`nova-launcher.html` 脚本头部）——抽屉副标题与「关于」弹窗共用，**升级只改这一处** |
 
 ## 构建、测试与校验
 
@@ -42,14 +43,17 @@ Source/
 - **DPI**：Per-Monitor V2（SetProcessDpiAwarenessContext PMv2）+ GetDpiForWindow（**禁止 GetDpiForSystem**，多显示器不准）+ WM_DPICHANGED 处理
 - **WebView2 初始化**：Form.Shown + Timer 轮询异步初始化（**禁止 .GetAwaiter().GetResult()/.Result 阻塞 UI 线程**，会死锁）
 - **通信**：前端 chrome.webview.postMessage({op,data}) → 后端 WebMessageReceived → op 分发 → PostWebMessageAsJson 响应
-- **毛玻璃**：DWM DWMWA_SYSTEMBACKDROP_TYPE（Mica=2/Acrylic=3/TabbedMica=4），WebView2 DefaultBackgroundColor=Transparent
-- **文件拖拽**：纯 WM_DROPFILES（DragAcceptFiles + WndProc 0x0233），**禁用前端 HTML5 拖拽**（dragover 不 preventDefault），后端直接 Add-AppPath 不搜索，限制 .exe/.lnk/.bat/.cmd
+- **窗口背景 / 毛玻璃**：只用 `DWMWA_SYSTEMBACKDROP_TYPE` 的 `DWMSBT_NONE`（透明框架）或 `glassEnabled` 的 Mica=2/Acrylic=3，WebView2 DefaultBackgroundColor=Transparent
+  - ⚠ **DWM 材质会把窗口背景整块顶掉**：实测背后放纯红窗口（220,30,30），透过任何 `DWMSBT_*` 材质红色分量都是 **0**。一旦启用，桌面再也透不出来，**透明度滑块必然失效**；且系统模糊半径固定、无可调 API。所以「背景模糊」改用前端「雾面膜」（`veil()` 按 `blurK` 把基色向磨砂色插值，**只改色调不碰 alpha**），两个滑块才得以解耦。旧版 accent API 在 Win11 已退化为纯黑平层且无模糊，不再启用
+  - 「真模糊 + 自由透明度」在本方案下不可兼得，唯一出路是自绘桌面快照（曾试过、因不实时而撤）
+- **文件拖拽**：NovaDrop（OLE `IDropTarget`），注册在主窗口 + 全部子窗口并定时重注册（WebView2 会创建 `Chrome_RenderWidgetHostHWND` 覆盖客户区）；`AllowExternalDrop=false`；**禁用前端 HTML5 拖拽**（dragover 不 preventDefault）；后端直接 Add-AppPath 不搜索，限制 .exe/.lnk/.bat/.cmd
+- **界面选中策略**：全局 `user-select:none`，仅对**「内容」**放行——可编辑控件（`input`/`textarea`/`contenteditable`）与界面上的路径文本（`.rpath`/`.chk-why`/`#drawerSub`/`.about-meta`）。判据是**内容 vs 界面**；一刀切会让输入框拖选、右键粘贴和路径复制一起失效
 - **编码铁律**：ps1 必须 UTF-8 **带 BOM**（PS5.1 中文注释否则语法错误）；bat 必须全英文 ASCII + CRLF
 - **数据落程序执行目录**：`$DataDir = $ScriptDir`，绿色自包含，禁用 `$env:APPDATA` 拼路径
 
 ## 已知问题
 
-- **文件拖拽真实触发失败**：WM_DROPFILES 模拟测试成功，但真实拖拽被 WebView2 子窗口（Chrome_RenderWidgetHostHWND）拦截，待子类化子窗口转发 WM_DROPFILES
+- 暂无阻塞项
 
 ## PowerShell 陷阱
 
