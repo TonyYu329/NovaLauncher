@@ -14,7 +14,7 @@
 | 平台 | 仅 Windows 10 / Windows 11 x64（需 WebView2 Runtime） |
 | 权威文档 | `DOCS/07Nova Launcher M40 详细开发任务拆解（可直接交给豆包执行）.md` |
 | GitHub | https://github.com/TonyYu329/NovaLauncher（main） |
-| 版本 | **V0.0.8**（已发布 GitHub Release 并实测验证，2026-09-16）；tag `v0.0.8` → 附注 tag → `305540f`；最新 commit `70b852a`（已 push main） |
+| 版本 | **V0.0.8**（已重新发布 GitHub Release，2026-09-16）；tag `v0.0.8`；最新 commit `fdbebf7`（已 push main） |
 | 版本号来源 | 前端 `APP_META` 常量（`nova-launcher.html` 脚本头部）——抽屉副标题与「关于」弹窗共用，**升级只改这一处** |
 | 发布人 | **Tony**（不是 GitHub 账号 TonyYu329，「关于」弹窗里填的是前者） |
 
