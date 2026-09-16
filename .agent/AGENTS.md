@@ -14,7 +14,7 @@
 | 平台 | 仅 Windows 10 / Windows 11 x64（需 WebView2 Runtime） |
 | 权威文档 | `DOCS/07Nova Launcher M40 详细开发任务拆解（可直接交给豆包执行）.md` |
 | GitHub | https://github.com/TonyYu329/NovaLauncher（main） |
-| 版本 | V0.0.5（已发布 GitHub Release）；最新 commit `d2a5300` |
+| 版本 | V0.0.5（已发布 GitHub Release）；最新 commit `8f8f6e3`（已 push main） |
 
 ## 构建、测试与校验
 
@@ -71,6 +71,7 @@ Source/
 - **修改反馈**：每次修改完成后用表格打印「修改文件完整路径 + 说明」
 - **Git 提交**：中文 commit，格式 `<type>: <简述>`；apps.json/settings.json 是用户私人数据不纳入提交
 - **记忆库**：`D:\ObsidianData\02AgentMemoryBank\01-项目区\NovaLauncher\@上下文-NovaLauncher.md`
+- **claude-hud 状态栏**：离线备份 `F:\AISoftware\claudecode\skills\claude-hub`（`bash install.sh` 一键恢复）；`modelSource: "both"` 为本地扩展（显示名 · 真实ID）
 
 ## 记忆库写入流程
 
