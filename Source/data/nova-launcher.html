@@ -99,7 +99,14 @@
     --ok-glow: rgba(26,163,90,.18);
   }
 
-  *{ box-sizing:border-box; margin:0; padding:0; }
+  /* 双击/拖拽界面不应选中任何东西：图标、⚙ 设置按钮、NOVA 字样、分组标题等
+     都只是界面本身，被浏览器选成蓝底白字纯属干扰。
+     下面这组单独放行，放行的是「内容」而非「界面」：
+       · 可编辑控件——否则输入框里的拖选、双击选词、右键粘贴会一起失效
+       · 界面上展示的路径文本——用户要靠选中来复制（应用路径/失效路径/数据目录） */
+  *{ box-sizing:border-box; margin:0; padding:0; user-select:none; -webkit-user-select:none; }
+  input, textarea, [contenteditable="true"],
+  .rpath, .chk-why, #drawerSub, .about-meta{ user-select:text; -webkit-user-select:text; }
   html,body{ height:100%; }
   body{
     font-family:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,"Microsoft YaHei UI","PingFang SC",sans-serif;
@@ -169,14 +176,18 @@
   .badge[data-state="offline"] .badge-txt{ display:inline; }
   @keyframes conn-pulse{ 0%,100%{ opacity:1 } 50%{ opacity:.35 } }
   .titlebar .spacer{ flex:1; }
+  /* 设置按钮：观感与右侧最小化/最大化/关闭完全一致——基础态无底色，悬停才浮出 --glass-hover。
+     此前基础态挂着 background:var(--glass)，而 data-bgstyle="none"（关闭毛玻璃）时
+     html[data-bgstyle="liquid"] 那条「与窗口按钮一致」的覆盖不生效，于是深色下 ⚙ 常驻
+     一块浅底，看起来像被选中；浅色规则里恰好有 background:transparent 重置，才没暴露。 */
   .icon-btn{
     width:40px; height:40px; border-radius:11px; border:1px solid transparent;
-    background:var(--glass); color:var(--text-1); cursor:pointer;
+    background:transparent; color:var(--text-1); cursor:pointer;
     display:grid; place-items:center; font-size:17px;
-    transition:background var(--anim-fast) var(--ease), transform var(--anim-fast) var(--ease), border-color var(--anim-fast) var(--ease);
+    transition:background var(--anim-fast) var(--ease), color var(--anim-fast) var(--ease), transform var(--anim-fast) var(--ease);
   }
-  .icon-btn:hover{ background:var(--glass-hover); border-color:var(--stroke); transform:translateY(-1px); }
-  .icon-btn:active{ transform:scale(.94); }
+  .icon-btn:hover{ background:var(--glass-hover); color:var(--text-1); }
+  .icon-btn:active{ transform:scale(.92); }
   /* 浅色模式：设置按钮与窗口控制按钮样式完全一致 */
   html[data-theme="light"] .icon-btn{ background:transparent; color:var(--text-2); }
   html[data-theme="light"] .icon-btn:hover{ background:var(--glass-hover); color:var(--text-1); border-color:transparent; transform:none; }
@@ -617,6 +628,24 @@
   .modal-foot .btn-ghost{ width:auto; padding:7px 12px; font-size:12px; flex:0 0 auto; }
   .modal-foot .btn-primary{ flex:0 0 auto; }
 
+  /* ---------- 关于 ---------- */
+  /* 比通用弹窗窄一圈：内容只有一块标识 + 四行元信息，560px 会空得难看 */
+  .modal-about{ width:360px; }
+  .about-body{ padding:6px 24px 26px; text-align:center; }
+  .about-mark{
+    width:56px; height:56px; margin:0 auto 14px; border-radius:16px;
+    display:grid; place-items:center; font-size:26px; color:#fff;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));
+    box-shadow:0 10px 26px -8px var(--accent);
+  }
+  .about-name{ font-size:17px; font-weight:640; letter-spacing:.2px; margin-bottom:18px; }
+  .about-meta{
+    display:grid; grid-template-columns:auto 1fr; gap:9px 18px;
+    width:fit-content; margin:0 auto; font-size:13px; text-align:left;
+  }
+  .about-meta dt{ color:var(--text-2); }
+  .about-meta dd{ color:var(--text-1); font-weight:560; }
+
 </style>
 </head>
 <body data-page-node-id="1QQnfMEknKu9NII3cumZvu">
@@ -657,7 +686,7 @@
 <div class="scrim" id="scrim" data-page-node-id="UHGGLpsvThFOF1ppjcPDxS"></div>
 <aside class="drawer" id="drawer" data-page-node-id="4CLLsIfS4pwUMPO4iw4AaF">
   <h2 data-page-node-id="veu3j4iuF1V7ZNdv9pgpvH">设置</h2>
-  <div class="sub" id="drawerSub" data-page-node-id="jmxQMJdfVJSnH7Gw1bUid5">Nova Launcher · V0.0.7</div>
+  <div class="sub" id="drawerSub" data-page-node-id="jmxQMJdfVJSnH7Gw1bUid5">Nova Launcher</div>
 
   <div class="sec" id="appearanceSec">
     <h3>外观</h3>
@@ -796,6 +825,11 @@
     <button class="btn-ghost" id="resetSettings" style="margin-top:8px" data-page-node-id="resetBtn">恢复默认设置</button>
     <button class="btn-ghost" id="quitHost" style="margin-top:8px" data-page-node-id="OKZhQmtqqTXfB1KmhIZBXU">退出 Nova Launcher</button>
   </div>
+
+  <div class="sec">
+    <h3>关于</h3>
+    <button class="btn-ghost" id="openAbout">关于 Nova Launcher</button>
+  </div>
 </aside>
 
 <div class="toast" id="toast" data-page-node-id="vKBQwDXheY36b1P0434TWG"></div>
@@ -831,11 +865,37 @@
     </div>
   </div>
 
+  <div class="modal-scrim" id="aboutScrim"></div>
+  <div class="modal modal-about" id="aboutModal" aria-hidden="true">
+    <div class="modal-head">
+      <h2>关于</h2>
+      <button class="icon-btn" id="aboutClose" title="关闭">✕</button>
+    </div>
+    <div class="about-body">
+      <div class="about-mark">✦</div>
+      <div class="about-name" id="aboutName">Nova Launcher</div>
+      <dl class="about-meta">
+        <dt>版本号</dt><dd id="aboutVersion">—</dd>
+        <dt>发布日期</dt><dd id="aboutDate">—</dd>
+        <dt>发布人</dt><dd id="aboutPublisher">—</dd>
+      </dl>
+    </div>
+  </div>
+
 <script>
 "use strict";
 
 const HOSTED = !!(window.chrome && window.chrome.webview);
 const $ = id => document.getElementById(id);
+
+/* 版本元信息：抽屉副标题与「关于」弹窗共用这一份。
+   升级版本时只改这里，别再散落到 drawerSub 的静态 HTML 里各写一遍。 */
+const APP_META = {
+  name: "Nova Launcher",
+  version: "V0.0.8",
+  releaseDate: "2026-09-16",
+  publisher: "TonyYu329",
+};
 
 let state = { apps: [], settings: { iconSize: 100, cols: 10, theme: "dark", glassEnabled: false, glassIntensity: 50, bgStyle: "liquid", windowOpacity: 100, bgBlur: 0, bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover", iconFontFamily: "system", iconFontSize: 14, iconFontColor: "#ffffff", iconFontWeight: 600 } };
 
@@ -1654,7 +1714,7 @@ const openDrawer  = () => { $("drawer").classList.add("open"); $("scrim").classL
 const closeDrawer = () => { $("drawer").classList.remove("open"); $("scrim").classList.remove("open"); };
 $("openSettings").onclick = openDrawer;
 $("scrim").onclick = closeDrawer;
-document.addEventListener("keydown", e => { if (e.key === "Escape") { closeCtx(); closeDrawer(); clearSelection(); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closeCtx(); closeDrawer(); closeAbout(); clearSelection(); } });
 
 /* ==========================================================================
    多选：拖拽框选（marquee）+ Ctrl/Shift 点选 + 右键/Del 批量删除
@@ -2389,6 +2449,20 @@ function renderChkPanel(bad, total) {
 const instModal = $("instModal"), instScrim = $("instScrim"), instList = $("instList");
 const openInstalled  = () => { instModal.classList.add("open"); instScrim.classList.add("open"); loadInstalled(); };
 const closeInstalled = () => { instModal.classList.remove("open"); instScrim.classList.remove("open"); };
+
+/* 关于弹窗：内容每次打开时从 APP_META 现填，不在 HTML 里写死版本号 */
+const aboutModal = $("aboutModal"), aboutScrim = $("aboutScrim");
+const openAbout = () => {
+  $("aboutName").textContent = APP_META.name;
+  $("aboutVersion").textContent = APP_META.version;
+  $("aboutDate").textContent = APP_META.releaseDate;
+  $("aboutPublisher").textContent = APP_META.publisher;
+  aboutModal.classList.add("open"); aboutScrim.classList.add("open");
+};
+const closeAbout = () => { aboutModal.classList.remove("open"); aboutScrim.classList.remove("open"); };
+$("openAbout").onclick = openAbout;
+$("aboutClose").onclick = closeAbout;
+aboutScrim.onclick = closeAbout;
 $("addInstalled").onclick = () => { if (!HOSTED) { toast("演示模式不可用", true); return; } closeDrawer(); openInstalled(); };
 $("instClose").onclick = closeInstalled;
 instScrim.onclick = closeInstalled;
@@ -2567,12 +2641,14 @@ function connFail() {
 }
 
 async function init() {
+  // 先铺上「名称 · 版本」（来自 APP_META），连上宿主后再追加数据目录
+  $("drawerSub").textContent = APP_META.name + " · " + APP_META.version;
   try {
     const d = await refresh();
     if (HOSTED) {
       document.body.classList.add("hosted");      // 显示窗口控制按钮（演示模式下隐藏）
       connOk();                                   // 绿点，正常态不出文字
-      $("drawerSub").textContent = "Nova Launcher · V0.0.7 · " + (d.dataDir || "");
+      $("drawerSub").textContent = APP_META.name + " · " + APP_META.version + " · " + (d.dataDir || "");
     } else {
       setConn("offline", "未连接宿主（演示模式：直接打开的 HTML，请用 NovaLauncher.bat 启动）");
       $("drawerSub").textContent = "演示模式 · 未连接宿主（请用 NovaLauncher.bat 启动）";
