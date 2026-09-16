@@ -71,7 +71,7 @@ Source/
 - **修改反馈**：每次修改完成后用表格打印「修改文件完整路径 + 说明」
 - **Git 提交**：中文 commit，格式 `<type>: <简述>`；apps.json/settings.json 是用户私人数据不纳入提交
 - **记忆库**：`D:\ObsidianData\02AgentMemoryBank\01-项目区\NovaLauncher\@上下文-NovaLauncher.md`
-- **claude-hud 状态栏**：离线备份 `F:\AISoftware\claudecode\skills\claude-hub`（`bash install.sh` 一键恢复）；`modelSource: "both"` 为本地扩展（显示名 · 真实ID）
+- **claude-hud 状态栏**：离线备份 `F:\AISoftware\claudecode\skills\claude-hub`（`bash install.sh` 一键恢复）；`modelSource: "both"` 为本地扩展（显示名 · 真实ID）；`humanizeModelName()` 把裸 ID 美化（`deepseek-flash[1m]` → `DeepSeek Flash[1m]`）。本地扩展**只在 `dist/`**（`src/` 是上游原版），三份 dist 须一致：`cache/claude-hud/claude-hud/0.8.0/`（生效）、`cache/claude-hub-local/…`、备份包 `plugin/`
 
 ## 记忆库写入流程
 

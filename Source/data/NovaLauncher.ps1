@@ -445,25 +445,22 @@ function Disable-NovaGlass([IntPtr]$hwnd) {
     Write-Log "毛玻璃已禁用"
 }
 
-# 根据 glassEnabled / windowOpacity / bgBlur 设置 DWM 窗口背景（全部为系统级、实时，不截屏）
-#   bgBlur>0           → DWMSBT_TRANSIENTWINDOW：DWM 对窗口背后桌面做实时亚克力高斯模糊，真透明、移动实时跟随
-#   windowOpacity<100  → 纯透明框架（DWMSBT_NONE）：桌面清晰透出，前端只叠色调
+# 根据 glassEnabled / windowOpacity 设置 DWM 窗口背景（系统级、实时）
+#   windowOpacity<100  → 纯透明框架（DWMSBT_NONE）：桌面清晰透出，前端叠“背景”膜
 #   glassEnabled       → 系统 Mica/亚克力；否则完全不透明
-function Set-NovaDwmBackground([IntPtr]$hwnd, [bool]$glassEnabled, [int]$windowOpacity, [int]$bgBlur = 0, [bool]$isDark = $true) {
+#
+# 背景模糊（bgBlur）**不在这里处理**：DWM 的 Mica/亚克力材质会把窗口背景整块顶掉
+# （实测：背后放纯红窗口，透过任何 DWMSBT 材质红色分量都是 0），一旦启用，透明度滑块
+# 就再也无法让桌面透出来。所以“背景模糊”改由前端一层雾面膜实现（见 nova-launcher.html
+# 的 applyStyle），模糊只改膜的色调浓度、不碰不透明度，两个滑块互不干扰。
+function Set-NovaDwmBackground([IntPtr]$hwnd, [bool]$glassEnabled, [int]$windowOpacity, [bool]$isDark = $true) {
     # 深浅色标题栏；不使用已在 Win11 退化为纯色的经典 SetWindowCompositionAttribute 亚克力
     $darkVal = if ($isDark) { 1 } else { 0 }
     [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_USE_IMMERSIVE_DARK_MODE, [ref]$darkVal, 4) | Out-Null
     [DwmGlass]::DisableAcrylicBlur($hwnd)
     $m = New-Object DwmGlass+MARGINS
 
-    if ($bgBlur -gt 0) {
-        # 窗口级实时亚克力模糊：模糊由 DWM 完成，前端只叠加可调浓度的磨砂染色层
-        $m.L = -1; $m.T = -1; $m.R = -1; $m.B = -1
-        [DwmGlass]::DwmExtendFrameIntoClientArea($hwnd, [ref]$m) | Out-Null
-        $acrylic = 3  # DWMSBT_TRANSIENTWINDOW（实时亚克力）
-        [DwmGlass]::DwmSetWindowAttribute($hwnd, [DwmGlass]::DWMWA_SYSTEMBACKDROP_TYPE, [ref]$acrylic, 4) | Out-Null
-        Write-Log "窗口实时亚克力模糊已启用（模糊 $bgBlur%，背景透明度 $windowOpacity%，dark=$darkVal）"
-    } elseif ($windowOpacity -lt 100) {
+    if ($windowOpacity -lt 100) {
         # 纯透明框架：不启用任何系统模糊，桌面清晰透出
         $m.L = -1; $m.T = -1; $m.R = -1; $m.B = -1
         [DwmGlass]::DwmExtendFrameIntoClientArea($hwnd, [ref]$m) | Out-Null
@@ -1780,7 +1777,7 @@ function Invoke-NovaApi([string]$op, $data) {
             $k = [string]$data.k; $v = $data.v; $s = Get-Settings
             if ($k -eq 'all') {
                 $s = $v | ConvertTo-Json -Depth 10 | ConvertFrom-Json
-                Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light')
+                Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ($s.theme -ne 'light')
                 Save-Settings $s
                 return [pscustomobject]@{ ok = $true; settings = $s }
             }
@@ -1788,21 +1785,20 @@ function Invoke-NovaApi([string]$op, $data) {
             switch ($k) {
                 'iconSize' { $n = 64; if ([int]::TryParse($v, [ref]$n)) { $s.iconSize = [Math]::Max(36, [Math]::Min(160, $n)) } }
                 'cols'     { $n = 6;  if ([int]::TryParse($v, [ref]$n)) { $s.cols     = [Math]::Max(3,  [Math]::Min(12, $n)) } }
-                'theme'    { if ($v -eq 'light' -or $v -eq 'dark') { $s.theme = $v; Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light') } }
+                'theme'    { if ($v -eq 'light' -or $v -eq 'dark') { $s.theme = $v; Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ($s.theme -ne 'light') } }
                 'glassEnabled' {
                     $s.glassEnabled = ($v -eq 'true' -or $v -eq 'True')
-                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light')
+                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ($s.theme -ne 'light')
                 }
                 'glassIntensity' { $n = 50; if ([int]::TryParse($v, [ref]$n)) { $s.glassIntensity = [Math]::Max(0, [Math]::Min(100, $n)) } }
                 'bgStyle' { if ($v -eq 'mica' -or $v -eq 'liquid') { $s.bgStyle = $v } }
                 'windowOpacity' {
                     $n = 100; if ([int]::TryParse($v, [ref]$n)) { $s.windowOpacity = [Math]::Max(20, [Math]::Min(100, $n)) }
-                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light')
+                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ($s.theme -ne 'light')
                 }
                 'bgBlur' {
+                    # 背景模糊是纯前端效果（雾面膜浓度），不碰 DWM，也不碰透明度，这里只负责存值
                     $n = 0; if ([int]::TryParse($v, [ref]$n)) { $s.bgBlur = [Math]::Max(0, [Math]::Min(100, $n)) }
-                    # 切换系统级实时亚克力模糊开关（>0 开 TRANSIENTWINDOW，=0 回纯透明/玻璃），模糊由 DWM 实时完成
-                    Set-NovaDwmBackground $form.Handle $s.glassEnabled ([int]$s.windowOpacity) ([int]$s.bgBlur) ($s.theme -ne 'light')
                 }
                 'bgImageEnabled' { $s.bgImageEnabled = ($v -eq 'true' -or $v -eq 'True') }
                 'bgImagePath' { $s.bgImagePath = $v }
@@ -1909,7 +1905,7 @@ try {
 
         if ($script:InitStep -eq 0) {
             Set-NovaWindowLayout -Windowed:$script:WantWindowed
-            Set-NovaDwmBackground $form.Handle $settings.glassEnabled ([int]$settings.windowOpacity) ([int]$settings.bgBlur) ($settings.theme -ne 'light')
+            Set-NovaDwmBackground $form.Handle $settings.glassEnabled ([int]$settings.windowOpacity) ($settings.theme -ne 'light')
             Start-NovaWebViewInit
             $preheatTimer.Start()
         }

@@ -657,7 +657,7 @@
 <div class="scrim" id="scrim" data-page-node-id="UHGGLpsvThFOF1ppjcPDxS"></div>
 <aside class="drawer" id="drawer" data-page-node-id="4CLLsIfS4pwUMPO4iw4AaF">
   <h2 data-page-node-id="veu3j4iuF1V7ZNdv9pgpvH">设置</h2>
-  <div class="sub" id="drawerSub" data-page-node-id="jmxQMJdfVJSnH7Gw1bUid5">Nova Launcher · V0.0.5</div>
+  <div class="sub" id="drawerSub" data-page-node-id="jmxQMJdfVJSnH7Gw1bUid5">Nova Launcher · V0.0.7</div>
 
   <div class="sec" id="appearanceSec">
     <h3>外观</h3>
@@ -696,8 +696,9 @@
       <input type="range" id="windowOpacity" min="20" max="100" value="100">
     </div>
 
+    <!-- 背景模糊滑块：暂时隐藏（功能保留，改 settings.json 的 bgBlur 仍生效）。要放出来只需去掉 style -->
     <div class="field" style="display:none">
-      <label>背景模糊 <b><span id="blurVal">0</span>%</b></label>
+      <label>背景模糊 <b><span id="blurVal">0</span>% <span id="blurTier"></span></b></label>
       <input type="range" id="bgBlur" min="0" max="100" value="0">
     </div>
 
@@ -1141,6 +1142,16 @@ function fallbackMini(app) {
   return g;
 }
 
+/* 背景模糊档位文案。系统层拿不到桌面像素去糊（DWM 材质会把背景整块顶掉、连带废掉透明度），
+   所以这里是一层前端“雾面膜”，滑块连续调膜的浓度，标注档位只是给个观感参照。 */
+function blurTierLabel(v) {
+  const n = Math.max(0, Math.min(100, Math.round(+v || 0)));
+  if (n <= 0) return "（关闭）";
+  if (n <= 33) return "（轻雾面）";
+  if (n <= 66) return "（中雾面）";
+  return "（重雾面）";
+}
+
 function applyStyle() {
   const s = state.settings;
   const enabled = s.glassEnabled !== false;
@@ -1150,13 +1161,16 @@ function applyStyle() {
   const winOpacityRaw = Math.max(20, Math.min(100, s.windowOpacity ?? 100)) / 100;
   const root = document.documentElement;
   root.dataset.bgstyle = enabled ? bgStyle : "none";
-  // 背景模糊强度 0~100：DWM 实时亚克力开关（>0 开），其高斯半径由系统决定，
-  // 数值大小通过前端“磨砂染色层浓度”体现（越大越浓、背后越柔化）
+  // 背景模糊 0~100 = 前端“雾面膜”的浓度。
+  // 为什么不用系统模糊：DWM 的 Mica/亚克力会把窗口背景整块顶掉（实测背后放纯红窗口，
+  // 透过任何 DWMSBT 材质红色分量都是 0），一旦启用，透明度滑块就再也拉不出桌面。
+  // 所以模糊只改膜的**色调浓度**，不透明度仍完全由透明度滑块决定，两者互不干扰。
   const bgBlur = Math.max(0, Math.min(100, s.bgBlur ?? 0));
-  const acrylic = bgBlur > 0;
+  const blurK = bgBlur / 100;
+  const blurOn = bgBlur > 0;
   const winOpacity = winOpacityRaw;
-  // 透明（windowOpacity<100）或开启系统亚克力时，都需要让 DWM 层透上来
-  const transparent = winOpacity < 0.999 || acrylic;
+  // “是否透明”只由透明度滑块决定：100% 就是完全不透明
+  const transparent = winOpacity < 0.999;
   const backdrop = document.querySelector(".backdrop");
   if (backdrop) {
     backdrop.style.opacity = "1";
@@ -1166,56 +1180,36 @@ function applyStyle() {
   root.classList.toggle("see-through", transparent);
   // 前端不再对背景做 CSS 高斯模糊（局部弹层的 backdrop-filter 不受此变量影响）
   root.style.setProperty("--glass-blur", "0px");
-  // 模糊强度 -> 前端磨砂染色层主浓度（系统亚克力固定半径之上，越拖越浓），再乘背景透明度
-  const blurK = bgBlur / 100;
-  const tintA = acrylic
-    ? ((isLight ? 0.10 : 0.08) + blurK * (isLight ? 0.46 : 0.40)) * winOpacity
-    : 0;
   const c3 = (x) => x.toFixed(3);
+  /* 雾面膜：把基色按模糊档位向“磨砂色”插值 —— 只变色调，完全不碰 alpha。
+     所以拖模糊滑块只改膜的浓淡观感，桌面透出多少纹丝不动。 */
+  const FROST_TONE = isLight ? [206, 210, 220] : [58, 62, 74];
+  const veil = (base) => base
+    .split(",")
+    .map((v, i) => Math.round(+v + (FROST_TONE[i] - +v) * blurK))
+    .join(",");
 
   if (transparent) {
-    /* ===== 透明 / 系统实时亚克力：body 全透明，露出 DWM（清晰桌面 或 实时模糊桌面） ===== */
+    /* ===== 纯透明框架：body 全透明，桌面真透出，前端叠一层可调浓淡的雾面膜 ===== */
+    const baseA = winOpacity;  // 不透明度：只由透明度滑块决定（0.2~0.999）
     root.style.setProperty("--bg-base", "rgba(0,0,0,0)");
-    if (acrylic) {
-      // DWM 已把背后桌面高斯模糊；前端只按 bgBlur 叠一层可调浓度的磨砂染色（液态玻璃另加轻微彩色高光）
-      if (bgStyle === "liquid") {
-        const g = (isLight ? 0.10 : 0.16) * blurK * winOpacity;
-        const c1 = isLight ? "248,249,253" : "28,28,40";
-        const c2 = isLight ? "250,251,255" : "20,20,32";
-        if (backdrop) backdrop.style.background =
-          `radial-gradient(ellipse 80% 60% at 20% 10%, rgba(108,99,255,${c3(g)}), transparent 60%),` +
-          `radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,180,255,${c3(g*0.8)}), transparent 55%),` +
-          `radial-gradient(ellipse 70% 60% at 50% 90%, rgba(255,120,190,${c3(g*0.7)}), transparent 60%),` +
-          `linear-gradient(135deg, rgba(${c1},${c3(tintA)}), rgba(${c2},${c3(tintA)}))`;
-      } else if (backdrop) {
-        const c1 = isLight ? "246,247,251" : "26,26,34";
-        const c2 = isLight ? "238,240,246" : "20,20,28";
-        backdrop.style.background =
-          `linear-gradient(135deg, rgba(${c1},${c3(tintA)}), rgba(${c2},${c3(tintA)}))`;
-      }
-      root.style.setProperty("--panel", isLight ? "rgba(255,255,255,0.60)" : "rgba(28,28,40,0.52)");
-      root.classList.add("glass-on"); root.classList.remove("glass-off");
+    if (enabled && bgStyle === "liquid" && backdrop) {
+      const g = 0.12 * winOpacity;
+      const c1 = veil(isLight ? "240,245,255" : "20,20,40");
+      const c2 = veil(isLight ? "255,255,255" : "15,15,30");
+      backdrop.style.background =
+        `radial-gradient(ellipse 80% 60% at 20% 10%, rgba(108,99,255,${c3(g)}), transparent 60%),` +
+        `radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,180,255,${c3(g*0.8)}), transparent 55%),` +
+        `radial-gradient(ellipse 70% 60% at 50% 90%, rgba(255,120,190,${c3(g*0.7)}), transparent 60%),` +
+        `linear-gradient(135deg, rgba(${c1},${c3(baseA)}), rgba(${c2},${c3(baseA)}))`;
+      root.style.setProperty("--bg-base", "rgba(0,0,0,0)");
     } else {
-      // bgBlur=0 纯透明：桌面清晰透出；主底色不透明度严格等于 windowOpacity，实现 20%~100% 连续中间透明度
-      const baseA = winOpacity;  // 0.2~0.999，值越大越不透明、透出桌面越少
-      if (enabled && bgStyle === "liquid" && backdrop) {
-        const g = 0.12 * winOpacity;
-        const c1 = isLight ? "240,245,255" : "20,20,40";
-        const c2 = isLight ? "255,255,255" : "15,15,30";
-        backdrop.style.background =
-          `radial-gradient(ellipse 80% 60% at 20% 10%, rgba(108,99,255,${c3(g)}), transparent 60%),` +
-          `radial-gradient(ellipse 60% 50% at 80% 20%, rgba(0,180,255,${c3(g*0.8)}), transparent 55%),` +
-          `radial-gradient(ellipse 70% 60% at 50% 90%, rgba(255,120,190,${c3(g*0.7)}), transparent 60%),` +
-          `linear-gradient(135deg, rgba(${c1},${c3(baseA)}), rgba(${c2},${c3(baseA)}))`;
-        root.style.setProperty("--bg-base", "rgba(0,0,0,0)");
-      } else {
-        if (backdrop) { backdrop.style.background = "transparent"; }
-        root.style.setProperty("--bg-base", isLight ? `rgba(238,240,245,${c3(baseA)})` : `rgba(16,16,20,${c3(baseA)})`);
-      }
-      root.style.setProperty("--panel", isLight ? `rgba(255,255,255,${c3(0.55*winOpacity+0.12)})` : `rgba(28,28,40,${c3(0.50*winOpacity+0.10)})`);
-      root.classList.toggle("glass-on", enabled);
-      root.classList.toggle("glass-off", !enabled);
+      if (backdrop) { backdrop.style.background = "transparent"; }
+      root.style.setProperty("--bg-base", `rgba(${veil(isLight ? "238,240,245" : "16,16,20")},${c3(baseA)})`);
     }
+    root.style.setProperty("--panel", isLight ? `rgba(255,255,255,${c3(0.55*winOpacity+0.12)})` : `rgba(28,28,40,${c3(0.50*winOpacity+0.10)})`);
+    root.classList.toggle("glass-on", enabled || blurOn);
+    root.classList.toggle("glass-off", !(enabled || blurOn));
   } else if (enabled) {
     /* ===== 不透明 + 玻璃：系统 Mica/亚克力（后端），前端叠加液态/毛玻璃质感底色 ===== */
     const alpha = (0.78 - (intensity / 100) * 0.55);
@@ -1245,8 +1239,8 @@ function applyStyle() {
     root.style.setProperty("--glass-blur", `${blur.toFixed(1)}px`);
     root.classList.add("glass-on"); root.classList.remove("glass-off");
   } else {
-    /* ===== 完全不透明、禁用玻璃 ===== */
-    root.style.setProperty("--bg-base", isLight ? "rgba(238,240,245,1)" : "rgba(16,16,20,1)");
+    /* ===== 完全不透明、禁用玻璃：雾面膜按“不透明度=100%”叠满，模糊滑块依然有效 ===== */
+    root.style.setProperty("--bg-base", `rgba(${veil(isLight ? "238,240,245" : "16,16,20")},1)`);
     root.style.setProperty("--panel", isLight ? "rgba(255,255,255,1)" : "rgba(26,26,32,1)");
     root.style.setProperty("--glass-blur", "0px");
     root.classList.add("glass-off"); root.classList.remove("glass-on");
@@ -1267,6 +1261,8 @@ function applyStyle() {
   if (blurRange) blurRange.value = bgBlur;
   const blurVal = $("blurVal");
   if (blurVal) blurVal.textContent = bgBlur;
+  const blurTier = $("blurTier");
+  if (blurTier) blurTier.textContent = blurTierLabel(bgBlur);
 }
 
 function applyWindowOpacity() {
@@ -2078,9 +2074,11 @@ applyWinChrome("maximized");                  // 打开时即为无边框最大�
 if (HOSTED) API.win("state").then(r => { if (r && r.ok) applyWinChrome(r.state); }).catch(() => {});
 
 /* 双击窗体空白处 = 最大化 / 还原（等同点一次标题栏的最大化按钮）。
-   排除所有可交互控件与图标瓦片，避免吞掉它们自己的双击/拖拽行为。 */
+   排除所有可交互控件与图标瓦片，避免吞掉它们自己的双击/拖拽行为。
+   注意 .brand（标题栏 logo + 应用名）**不**排除：真实 Windows 标题栏双击标题文字
+   就是最大化/还原，排除掉会让最顺手的那块区域反而没反应。 */
 document.querySelector(".window").addEventListener("dblclick", e => {
-  if (e.target.closest(".tile, button, input, a, .wctrl, .icon-btn, #modeBadge, .brand")) return;
+  if (e.target.closest(".tile, button, input, a, .wctrl, .icon-btn, #modeBadge")) return;
   winOp("max");
 });
 
@@ -2574,7 +2572,7 @@ async function init() {
     if (HOSTED) {
       document.body.classList.add("hosted");      // 显示窗口控制按钮（演示模式下隐藏）
       connOk();                                   // 绿点，正常态不出文字
-      $("drawerSub").textContent = "Nova Launcher · V0.0.5 · " + (d.dataDir || "");
+      $("drawerSub").textContent = "Nova Launcher · V0.0.7 · " + (d.dataDir || "");
     } else {
       setConn("offline", "未连接宿主（演示模式：直接打开的 HTML，请用 NovaLauncher.bat 启动）");
       $("drawerSub").textContent = "演示模式 · 未连接宿主（请用 NovaLauncher.bat 启动）";
