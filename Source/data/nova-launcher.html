@@ -236,7 +236,7 @@
     border:1px solid transparent; background:transparent; cursor:pointer;
     transition:transform var(--anim-fast) var(--ease), background var(--anim-fast) var(--ease),
                box-shadow var(--anim-fast) var(--ease), border-color var(--anim-fast) var(--ease);
-    user-select:none;
+    user-select:none; touch-action:none;
   }
   .tile .ico{
     position:relative; width:min(100%, var(--icon-size)); aspect-ratio:1 / 1; height:auto;
@@ -246,6 +246,7 @@
   .tile .ico img{
     width:100%; height:100%; object-fit:contain;
     filter:drop-shadow(0 8px 20px rgba(0,0,0,.42));
+    -webkit-user-drag:none; user-drag:none;
   }
   .tile .ico .glyph{
     display:none; width:100%; height:100%; place-items:center;
@@ -274,8 +275,22 @@
   .tile:hover .label{ color:var(--text-1); }
   .tile:active{ transform:translateY(0) scale(.975); }
   .tile.dragging{ opacity:.35; }
+  .drag-ghost{ position:fixed; z-index:50; margin:0; pointer-events:none;
+    transform:scale(1.06); box-shadow:0 16px 34px rgba(0,0,0,.4); border-radius:var(--radius-card);
+    background:var(--glass); border:1px solid var(--stroke-strong); opacity:.92; }
+  /* 拖拽插入位置指示线：拖拽过程中其它图标原地不动，只用这条竖线提示落点 */
+  .drop-indicator{ position:fixed; z-index:49; width:3px; border-radius:2px;
+    background:var(--accent); box-shadow:0 0 8px var(--accent); pointer-events:none; }
   .tile.drop-target{ border-color:var(--stroke-strong); background:var(--glass);
     box-shadow:0 0 0 2px var(--accent) inset; }
+  /* 多选高亮：框选 / Ctrl+Click / Shift+Click 命中的图标 */
+  .tile.selected{ background:var(--glass); border-color:var(--accent);
+    box-shadow:0 0 0 2px var(--accent); }
+
+  /* ---------- 拖拽框选（marquee） ---------- */
+  .marquee{ position:fixed; z-index:4; pointer-events:none; border-radius:4px;
+    border:1px solid var(--accent);
+    background:color-mix(in srgb, var(--accent) 18%, transparent); }
 
   /* ---------- 空状态 ---------- */
   .empty{
@@ -787,6 +802,7 @@
   <div class="dropzone" id="dropzone" data-page-node-id="mWdeNPNHbI98lNAk0I2HCN"><div class="dz-inner" data-page-node-id="NJ5iFTVvyw5lEPqOVpODRC"><div class="big" data-page-node-id="rmdCVhzazfNMHw8GdvEhnY">🔗</div><p data-page-node-id="znOM4FprYNJeL40IN1Tzaq">创建快捷方式</p><div class="sub2" data-page-node-id="GRPfhsi0AIQLlhtnGA6vdk">支持任何文件 / 文件夹，一次可拖入多个</div></div></div>
 
   <div class="ctxmenu" id="ctxmenu" role="menu" aria-hidden="true" data-page-node-id="uQB6pzQsBRkJjbxGpYkhne"></div>
+  <div class="marquee" id="marquee" hidden></div>
 
   <div class="modal-scrim" id="instScrim" data-page-node-id="xrMJUGWWB8A5zvK8F4BW7H"></div>
   <div class="modal" id="instModal" aria-hidden="true" data-page-node-id="zFWnakBOLAVWwLBcsddH2V">
@@ -851,11 +867,27 @@ if (HOSTED) {
   window.chrome.webview.addEventListener("message", (e) => {
     let msg;
     try { msg = typeof e.data === "string" ? JSON.parse(e.data) : e.data; } catch (_) { return; }
-    // 后端原生 WM_DROPFILES 拖拽完成：直接刷新界面
+    // 后端原生拖拽完成（IDropTarget 取到真实绝对路径）：直接刷新界面
     if (msg.op === "appsChanged") {
       hideDrop();
       refresh();
-      if (msg.added > 0) toast("＋ 已添加 " + msg.added + " 个应用" + (msg.failed > 0 ? "，失败 " + msg.failed + " 个" : ""), msg.failed > 0);
+      const okN = (typeof msg.added === "number") ? msg.added : (msg.added || []).length;
+      const badN = (typeof msg.failed === "number") ? msg.failed : (msg.failed || []).length;
+      if (okN > 0) toast("＋ 已添加 " + okN + " 个应用" + (badN > 0 ? "，失败 " + badN + " 个" : ""), badN > 0);
+      else if (badN > 0) {
+        const bad = msg.failedItems || [];
+        const head = bad.slice(0, 3).map(f => {
+          const nm = f.name || (f.path ? String(f.path).split(/[\\/]/).pop() : "未知项");
+          return nm + "（" + (f.reason || "未添加") + "）";
+        }).join("、");
+        toast("拖入 " + badN + " 个未添加：" + head + (badN > 3 ? " 等" : ""), true);
+      }
+      return;
+    }
+    // 拖拽悬停状态：AllowExternalDrop 关闭后网页收不到 dragenter/dragover，
+    // 由宿主 IDropTarget 的 DragEnter/DragLeave 推送过来驱动遮罩
+    if (msg.op === "dragState") {
+      if (msg.active) showDrop(); else hideDrop();
       return;
     }
     if (msg.id != null && __pending.has(msg.id)) {
@@ -1014,6 +1046,7 @@ function makeIcon(app, i, reqSize) {
       if (!uri) { box.classList.add("fallback"); return; }
       const img = document.createElement("img");
       img.alt = "";
+      img.draggable = false;   // <img> 默认原生可拖拽，会抢走图标排序的指针手势
       img.addEventListener("error", () => box.classList.add("fallback"));
       box.insertBefore(img, glyph);
       img.src = uri;
@@ -1039,7 +1072,6 @@ function renderGrid() {
   state.apps.forEach((app, i) => {
     const t = document.createElement("div");
     t.className = "tile" + (app.exists === false ? " missing" : "");
-    t.draggable = true;
     t.dataset.index = i;
     t.title = (app.path || "（无路径）") + (app.exists === false ? "（文件不存在）" : "") +
               (HOSTED ? "\n右键：重命名 / 打开文件位置 / 移除快捷方式" : "");
@@ -1051,6 +1083,8 @@ function renderGrid() {
     t.addEventListener("click", () => launchApp(i, app));
     grid.appendChild(t);
   });
+  // 重绘不清空多选状态：按索引把 .selected 类重新贴回新生成的瓦片上
+  selected.forEach(i => { const t = grid.querySelector('.tile[data-index="' + i + '"]'); if (t) t.classList.add("selected"); });
 }
 
 function renderList() {
@@ -1374,22 +1408,104 @@ async function revealApp(i, app) {
   catch (e) { toast("打开文件位置失败：" + e.message, true); }
 }
 
-/* ---------- 拖拽排序：DOM 顺序即 apps 顺序，落库用 /api/move ---------- */
-let dragEl = null, dragFrom = -1;
+/* ---------- 拖拽排序：DOM 顺序即 apps 顺序，落库用 /api/move ----------
+   改用指针事件（pointerdown/pointermove/pointerup）自实现，不走浏览器原生
+   HTML5 Drag and Drop（draggable + dragstart/dragover/drop）：
+   宿主为了让外部文件拖入走 WM_DROPFILES 独占，把 WebView2 的
+   AllowExternalDrop 关掉了，而这会连带关闭页面内部的原生拖拽（Chromium/
+   WebView2 已知限制），导致图标排序失效。纯指针事件不经过 OS 级 OLE 拖放，
+   不受 AllowExternalDrop 影响，和外部文件拖入互不干扰。
+   兜底再拦一道原生 dragstart：<img> 默认原生可拖拽，一旦某个图标的真实
+   图片加载完成，按住它拖动就会被浏览器当成"拖图片"而不是我们的指针拖拽
+   （表现为"有的图标能拖、有的不能"——取决于图标是否已异步加载完成）。
+   makeIcon() 里已把 img.draggable 设为 false，这里再兜底拦一次。
 
-grid.addEventListener("dragstart", e => {
+   交互上：拖拽过程中其它图标原地不动，只在即将落入的位置显示一条竖线
+   （drop-indicator）提示落点；松手那一刻才真正挪动 DOM、一次性重排。 */
+grid.addEventListener("dragstart", e => e.preventDefault());
+
+let dragEl = null, dragFrom = -1, dragPointerId = null, dragMoved = false;
+let dragStartX = 0, dragStartY = 0, dragOffsetX = 0, dragOffsetY = 0, dragGhost = null;
+let dragTargetRef;   // undefined=尚未算过；null=插入到末尾；Element=插入到它前面
+const DRAG_MOVE_THRESHOLD = 4;
+let dropIndicator = null;
+
+function ensureDropIndicator() {
+  if (!dropIndicator) {
+    dropIndicator = document.createElement("div");
+    dropIndicator.className = "drop-indicator";
+    dropIndicator.hidden = true;
+    document.body.appendChild(dropIndicator);
+  }
+  return dropIndicator;
+}
+
+function showDropIndicator(ref) {
+  const ind = ensureDropIndicator();
+  let rect, atRight = false;
+  if (ref) {
+    rect = ref.getBoundingClientRect();
+  } else {
+    const tiles = [...grid.querySelectorAll(".tile:not(.dragging)")];
+    const last = tiles[tiles.length - 1];
+    if (!last) { ind.hidden = true; return; }
+    rect = last.getBoundingClientRect();
+    atRight = true;
+  }
+  const x = atRight ? rect.right : rect.left;
+  ind.style.left = (x - 1.5) + "px";
+  ind.style.top = rect.top + "px";
+  ind.style.height = rect.height + "px";
+  ind.hidden = false;
+}
+
+function hideDropIndicator() {
+  if (dropIndicator) dropIndicator.hidden = true;
+}
+
+grid.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
   const t = e.target.closest(".tile"); if (!t) return;
-  dragEl = t; dragFrom = +t.dataset.index;
-  t.classList.add("dragging");
-  e.dataTransfer.effectAllowed = "move";
-  e.dataTransfer.setData("text/plain", String(dragFrom));
+  dragEl = t; dragFrom = +t.dataset.index; dragPointerId = e.pointerId;
+  dragMoved = false; dragTargetRef = undefined; dragStartX = e.clientX; dragStartY = e.clientY;
+  const r = t.getBoundingClientRect();
+  dragOffsetX = e.clientX - r.left; dragOffsetY = e.clientY - r.top;
 });
 
-grid.addEventListener("dragend", async () => {
-  if (!dragEl) return;
-  dragEl.classList.remove("dragging");
-  const dragTo = +dragEl.dataset.index;
-  dragEl = null;
+grid.addEventListener("pointermove", e => {
+  if (!dragEl || e.pointerId !== dragPointerId) return;
+  if (!dragMoved) {
+    if (Math.hypot(e.clientX - dragStartX, e.clientY - dragStartY) < DRAG_MOVE_THRESHOLD) return;
+    dragMoved = true;
+    clearSelection();   // 拖单个图标排序时退出多选态
+    const r = dragEl.getBoundingClientRect();
+    dragGhost = dragEl.cloneNode(true);
+    dragGhost.classList.add("drag-ghost");
+    dragGhost.style.width = r.width + "px";
+    dragGhost.style.height = r.height + "px";
+    dragGhost.style.left = r.left + "px";
+    dragGhost.style.top = r.top + "px";
+    document.body.appendChild(dragGhost);
+    dragEl.classList.add("dragging");   // 只变暗，原地不动
+    try { dragEl.setPointerCapture(dragPointerId); } catch (_) {}
+  }
+  e.preventDefault();
+  if (dragGhost) {
+    dragGhost.style.left = (e.clientX - dragOffsetX) + "px";
+    dragGhost.style.top = (e.clientY - dragOffsetY) + "px";
+  }
+  let ref = nearestRef(grid, e.clientX, e.clientY);
+  if (ref === dragEl) ref = dragEl.nextElementSibling;
+  dragTargetRef = ref;
+  showDropIndicator(ref);
+});
+
+async function finishDrag(el, targetRef) {
+  el.classList.remove("dragging");
+  if (targetRef === undefined) return;   // 没挪够阈值就松手：位置未变，什么都不做
+  if (targetRef == null) grid.appendChild(el); else if (targetRef !== el) grid.insertBefore(el, targetRef);
+  [...grid.querySelectorAll(".tile")].forEach((t, i) => { t.dataset.index = i; });
+  const dragTo = +el.dataset.index;
   if (dragFrom === dragTo || dragTo < 0) return;
   const from = dragFrom, to = dragTo;
   try {
@@ -1404,15 +1520,26 @@ grid.addEventListener("dragend", async () => {
     toast("排序保存失败：" + e.message, true);
     try { await refresh(); } catch (_) { renderGrid(); }
   }
+}
+
+function endDragGesture() {
+  if (dragGhost) { dragGhost.remove(); dragGhost = null; }
+  hideDropIndicator();
+  dragEl = null; dragPointerId = null; dragMoved = false; dragTargetRef = undefined;
+}
+
+grid.addEventListener("pointerup", e => {
+  if (!dragEl || e.pointerId !== dragPointerId) return;
+  const el = dragEl, moved = dragMoved, targetRef = dragTargetRef;
+  try { el.releasePointerCapture(dragPointerId); } catch (_) {}
+  endDragGesture();
+  if (moved) finishDrag(el, targetRef);
 });
 
-grid.addEventListener("dragover", e => {
-  e.preventDefault();
-  if (!dragEl) return;
-  let ref = nearestRef(grid, e.clientX, e.clientY);
-  if (ref === dragEl) ref = dragEl.nextElementSibling;
-  if (ref == null) grid.appendChild(dragEl); else grid.insertBefore(dragEl, ref);
-  [...grid.querySelectorAll(".tile")].forEach((t, i) => { t.dataset.index = i; });
+grid.addEventListener("pointercancel", e => {
+  if (!dragEl || e.pointerId !== dragPointerId) return;
+  dragEl.classList.remove("dragging");   // 取消时从没挪过 DOM，原地恢复即可
+  endDragGesture();
 });
 
 function nearestRef(container, x, y) {
@@ -1430,7 +1557,11 @@ function nearestRef(container, x, y) {
   return before ? closest : closest.nextElementSibling;
 }
 
-/* ---------- 拖入文件自动添加 ---------- */
+/* ---------- 拖入文件自动添加 ----------
+   HOSTED（WebView2 宿主）下文件拖拽由宿主 IDropTarget 独占处理：
+   宿主已把 AllowExternalDrop 关掉，网页收不到 dragenter/dragover/drop，
+   遮罩改由宿主推送的 dragState 消息驱动（见上方 message 监听）。
+   下面这套 HTML5 拖拽只服务浏览器演示模式（非 HOSTED），不再与宿主抢落点。 */
 let dragDepth = 0;
 const dropzone = $("dropzone");
 function showDrop() { dropzone.classList.add("show"); }
@@ -1440,15 +1571,15 @@ function isFileDrag(e) {
   return Array.from(e.dataTransfer.types).indexOf("Files") >= 0;
 }
 window.addEventListener("dragenter", e => {
-  if (!isFileDrag(e)) return;
+  if (HOSTED || !isFileDrag(e)) return;
   dragDepth++; if (dragDepth === 1) showDrop();
 });
 window.addEventListener("dragover", e => {
-  if (!isFileDrag(e)) return;
+  if (HOSTED || !isFileDrag(e)) return;
   e.preventDefault(); e.dataTransfer.dropEffect = "link";
 });
 window.addEventListener("dragleave", e => {
-  if (!isFileDrag(e)) return;
+  if (HOSTED || !isFileDrag(e)) return;
   dragDepth--; if (dragDepth <= 0) { dragDepth = 0; hideDrop(); }
 });
 /* 从拖放事件里取出「文件引用」（绝对路径 + 文件名）。
@@ -1495,10 +1626,8 @@ function fileRefsFrom(e) {
 }
 
 window.addEventListener("drop", e => {
-  if (!isFileDrag(e)) return;
+  if (HOSTED || !isFileDrag(e)) return;
   e.preventDefault(); dragDepth = 0; hideDrop();
-  // HOSTED 环境下由后端 WinForms DragDrop 获取绝对路径并推送，前端不重复处理
-  if (HOSTED) return;
   const refs = fileRefsFrom(e);
   if (!refs.length) { toast("没能识别拖入的内容，请拖快捷方式或 .exe 文件", true); return; }
   addPaths(refs);
@@ -1529,7 +1658,106 @@ const openDrawer  = () => { $("drawer").classList.add("open"); $("scrim").classL
 const closeDrawer = () => { $("drawer").classList.remove("open"); $("scrim").classList.remove("open"); };
 $("openSettings").onclick = openDrawer;
 $("scrim").onclick = closeDrawer;
-document.addEventListener("keydown", e => { if (e.key === "Escape") { closeCtx(); closeDrawer(); } });
+document.addEventListener("keydown", e => { if (e.key === "Escape") { closeCtx(); closeDrawer(); clearSelection(); } });
+
+/* ==========================================================================
+   多选：拖拽框选（marquee）+ Ctrl/Shift 点选 + 右键/Del 批量删除
+   ==========================================================================
+   点击单个图标本就是"立即启动"（本项目既有约定，非双击），因此多选只通过
+   Ctrl/Shift+Click 或在空白处拖出选框来进入，不改变普通单击的启动行为——
+   普通单击时若已有多选，先清空选择再照常启动，不吞掉这次点击。 */
+let selected = new Set();
+let lastAnchor = -1;
+const marqueeEl = $("marquee");
+
+function setSelected(i, on) {
+  const t = grid.querySelector('.tile[data-index="' + i + '"]');
+  if (on) selected.add(i); else selected.delete(i);
+  if (t) t.classList.toggle("selected", on);
+}
+function clearSelection() {
+  if (!selected.size) return;
+  selected.forEach(i => setSelected(i, false));
+  selected.clear();
+}
+
+// Ctrl/Shift+Click 点选：capture 阶段先于 tile 自身的 click(=启动) 监听器拦截
+grid.addEventListener("click", e => {
+  const t = e.target.closest(".tile");
+  if (!t) return;
+  const i = +t.dataset.index;
+  if (e.ctrlKey || e.metaKey) {
+    e.stopPropagation();
+    setSelected(i, !selected.has(i));
+    lastAnchor = i;
+    return;
+  }
+  if (e.shiftKey) {
+    e.stopPropagation();
+    const from = lastAnchor >= 0 ? lastAnchor : i;
+    const a = Math.min(from, i), b = Math.max(from, i);
+    for (let k = a; k <= b; k++) setSelected(k, true);
+    lastAnchor = i;
+    return;
+  }
+  if (selected.size) clearSelection();   // 普通单击：清空多选，冒泡到 tile 自身继续启动
+}, { capture: true });
+
+// 空白处拖出选框：命中的图标即选中
+let marqueeState = null;
+const MARQUEE_THRESHOLD = 4;
+const mainEl = document.querySelector(".main");
+
+document.addEventListener("mousedown", e => {
+  if (e.button !== 0) return;
+  if (!mainEl.contains(e.target) || e.target.closest(".tile")) return;
+  const additive = e.ctrlKey || e.metaKey || e.shiftKey;
+  marqueeState = { startX: e.clientX, startY: e.clientY, moved: false, additive };
+  if (!additive) clearSelection();
+});
+document.addEventListener("mousemove", e => {
+  if (!marqueeState) return;
+  const dx = e.clientX - marqueeState.startX, dy = e.clientY - marqueeState.startY;
+  if (!marqueeState.moved && Math.hypot(dx, dy) < MARQUEE_THRESHOLD) return;
+  marqueeState.moved = true;
+  e.preventDefault();
+  const x1 = Math.min(marqueeState.startX, e.clientX), x2 = Math.max(marqueeState.startX, e.clientX);
+  const y1 = Math.min(marqueeState.startY, e.clientY), y2 = Math.max(marqueeState.startY, e.clientY);
+  marqueeEl.style.left = x1 + "px"; marqueeEl.style.top = y1 + "px";
+  marqueeEl.style.width = (x2 - x1) + "px"; marqueeEl.style.height = (y2 - y1) + "px";
+  marqueeEl.hidden = false;
+  grid.querySelectorAll(".tile").forEach(t => {
+    const b = t.getBoundingClientRect();
+    const i = +t.dataset.index;
+    const hit = b.left < x2 && b.right > x1 && b.top < y2 && b.bottom > y1;
+    setSelected(i, hit || (marqueeState.additive && selected.has(i)));
+  });
+});
+document.addEventListener("mouseup", () => {
+  if (!marqueeState) return;
+  marqueeEl.hidden = true;
+  marqueeState = null;
+});
+
+// 批量移除：倒序删，行号位移不串（与"检查有效性→全部移除"同一套路）
+async function removeAppsBatch(indices) {
+  const sorted = indices.slice().sort((a, b) => b - a);
+  let ok = 0, fail = 0;
+  for (const i of sorted) {
+    try { await API.remove(i); ok++; } catch (e) { fail++; }
+  }
+  clearSelection();
+  try { await refresh(); } catch (_) { renderGrid(); renderList(); }
+  toast(fail ? ("已移除 " + ok + " 个，" + fail + " 个失败") : ("已移除 " + ok + " 个应用"), !!fail);
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key !== "Delete" || !selected.size) return;
+  if (ctx.classList.contains("open") || $("drawer").classList.contains("open") || $("instModal").classList.contains("open")) return;
+  if (isEditableTarget(document.activeElement)) return;
+  e.preventDefault();
+  removeAppsBatch(Array.from(selected));
+});
 
 /* ==========================================================================
    图标右键菜单
@@ -1561,6 +1789,20 @@ function positionCtx(x, y) {
   ctx.style.top  = top  + "px";
 }
 
+function ctxAddItem(icon, text, fn, opts) {
+  opts = opts || {};
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "mi" + (opts.danger ? " danger" : "");
+  const ic = document.createElement("span"); ic.className = "ic"; ic.textContent = icon;
+  const tx = document.createElement("span"); tx.className = "tx"; tx.textContent = text;
+  b.appendChild(ic); b.appendChild(tx);
+  if (opts.disabled) b.disabled = true;
+  b.onclick = ev => { ev.stopPropagation(); fn(); };
+  ctx.appendChild(b);
+  return b;
+}
+
 function buildCtx(i, app, mode) {
   mode = mode || "normal";
   ctx.innerHTML = "";
@@ -1571,19 +1813,7 @@ function buildCtx(i, app, mode) {
   ctx.appendChild(hd);
   ctx.appendChild(Object.assign(document.createElement("div"), { className: "sep" }));
 
-  const add = (icon, text, fn, opts) => {
-    opts = opts || {};
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "mi" + (opts.danger ? " danger" : "");
-    const ic = document.createElement("span"); ic.className = "ic"; ic.textContent = icon;
-    const tx = document.createElement("span"); tx.className = "tx"; tx.textContent = text;
-    b.appendChild(ic); b.appendChild(tx);
-    if (opts.disabled) b.disabled = true;
-    b.onclick = ev => { ev.stopPropagation(); fn(); };
-    ctx.appendChild(b);
-    return b;
-  };
+  const add = ctxAddItem;
 
   // 原地切态：换掉菜单内容但**位置不动**（鼠标不跑偏，像菜单自己变身）
   const reflow = m => { buildCtx(i, app, m); positionCtx(ctxPos.x, ctxPos.y); };
@@ -1707,6 +1937,35 @@ function showCtx(i, app, x, y) {
   ctx.setAttribute("aria-hidden", "false");
 }
 
+/* 多选批量右键菜单：仅在右键的图标本就属于当前多选集合时出现（否则按单选处理）。 */
+function buildMultiCtx(indices, mode) {
+  mode = mode || "normal";
+  ctx.innerHTML = "";
+
+  const hd = document.createElement("div");
+  hd.className = "hd";
+  hd.textContent = "已选择 " + indices.length + " 个应用";
+  ctx.appendChild(hd);
+  ctx.appendChild(Object.assign(document.createElement("div"), { className: "sep" }));
+
+  const reflow = m => { buildMultiCtx(indices, m); positionCtx(ctxPos.x, ctxPos.y); };
+
+  if (mode === "confirmRemove") {
+    ctxAddItem("⚠", "再点一次确认移除 " + indices.length + " 个", () => { closeCtx(); removeAppsBatch(indices); }, { danger: true });
+  } else {
+    ctxAddItem("✕", "移除所选（" + indices.length + "）", () => reflow("confirmRemove"), { danger: true });
+  }
+  ctxAddItem("☐", "取消选择", () => { closeCtx(); clearSelection(); });
+}
+function showMultiCtx(indices, x, y) {
+  closeCtx();
+  ctxPos = { x, y };
+  buildMultiCtx(indices, "normal");
+  positionCtx(x, y);
+  ctx.classList.add("open");
+  ctx.setAttribute("aria-hidden", "false");
+}
+
 // 点到别处 / 滚轮 / 窗口失焦 / 改尺寸 都收起来，避免菜单悬在那里指着旧位置
 window.addEventListener("mousedown", e => {
   if (ctx.classList.contains("open") && !ctx.contains(e.target)) closeCtx();
@@ -1755,7 +2014,13 @@ document.addEventListener("contextmenu", e => {
   if (!t) { closeCtx(); return; }
   const i = +t.dataset.index;
   const app = state.apps[i];
-  if (app) showCtx(i, app, e.clientX, e.clientY);
+  if (!app) return;
+  if (selected.size > 1 && selected.has(i)) {
+    showMultiCtx(Array.from(selected).sort((a, b) => a - b), e.clientX, e.clientY);
+  } else {
+    if (selected.size) clearSelection();
+    showCtx(i, app, e.clientX, e.clientY);
+  }
 }, { capture: true });
 
 /* ==========================================================================
@@ -1811,6 +2076,13 @@ $("winMax").onclick   = () => winOp("max");
 $("winClose").onclick = () => winOp("close");
 applyWinChrome("maximized");                  // 打开时即为无边框最大化，先按最大化渲染图标
 if (HOSTED) API.win("state").then(r => { if (r && r.ok) applyWinChrome(r.state); }).catch(() => {});
+
+/* 双击窗体空白处 = 最大化 / 还原（等同点一次标题栏的最大化按钮）。
+   排除所有可交互控件与图标瓦片，避免吞掉它们自己的双击/拖拽行为。 */
+document.querySelector(".window").addEventListener("dblclick", e => {
+  if (e.target.closest(".tile, button, input, a, .wctrl, .icon-btn, #modeBadge, .brand")) return;
+  winOp("max");
+});
 
 /* --------------------------------------------------------------------------
    窗口化拖拽移动（M36）：标题栏按住左键拖动 → 整窗跟随鼠标平移。

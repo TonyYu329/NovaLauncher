@@ -67,7 +67,11 @@ function Write-Log([string]$msg) {
 }
 
 # ---------------------------------------------------------------------------
-# NovaIcon: 真实图标提取（PrivateExtractIcons，256px 大图）
+# NovaIcon: 真实图标提取
+#   ① PrivateExtractIcons —— 仅对 PE 文件（.exe/.dll）与 .ico 有效，取的是
+#      程序内嵌的大图，最清晰，所以优先走它（.exe/.lnk 维持原有观感）。
+#   ② Shell 原生图标（IShellItemImageFactory::GetImage + ICONONLY）
+#      —— 文件夹、.pdf/.txt 等非 PE 文件走这条，拿到与资源管理器一致的系统图标。
 # ---------------------------------------------------------------------------
 if (-not ('NovaIcon' -as [type])) {
     Add-Type -ReferencedAssemblies 'System.Drawing' -TypeDefinition @'
@@ -81,7 +85,39 @@ public static class NovaIcon {
     private static extern uint PrivateExtractIcons(string szFileName, int nIconIndex, int cxIcon, int cyIcon, IntPtr[] phicon, uint[] piconid, uint nIcons, uint flags);
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool DestroyIcon(IntPtr hIcon);
+
+    // ---- Shell 原生图标（Vista+）----
+    [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IShellItemImageFactory {
+        void GetImage(SIZE size, int flags, out IntPtr phbm);
+    }
+    [StructLayout(LayoutKind.Sequential)] public struct SIZE { public int cx; public int cy; }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    private static extern void SHCreateItemFromParsingName(string pszPath, IntPtr pbc, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out object ppv);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAP { public int bmType; public int bmWidth; public int bmHeight; public int bmWidthBytes; public ushort bmPlanes; public ushort bmBitsPixel; public IntPtr bmBits; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAPINFOHEADER { public int biSize; public int biWidth; public int biHeight; public short biPlanes; public short biBitCount; public int biCompression; public int biSizeImage; public int biXPelsPerMeter; public int biYPelsPerMeter; public int biClrUsed; public int biClrImportant; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAPINFO { public BITMAPINFOHEADER bmiHeader; }
+    [DllImport("gdi32.dll")] private static extern int GetObject(IntPtr h, int c, ref BITMAP b);
+    [DllImport("gdi32.dll")] private static extern int GetDIBits(IntPtr hdc, IntPtr hbm, uint start, uint lines, IntPtr bits, ref BITMAPINFO bi, uint usage);
+    [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr h);
+    [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr h);
+    [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr h, IntPtr hdc);
+
+    private const int SIIGBF_ICONONLY = 0x04;   // 只要图标，不要缩略图（快且确定）
+    private static readonly Guid IID_IShellItemImageFactory = new Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b");
+
     public static byte[] Png(string path, int size) {
+        byte[] r = PePng(path, size);
+        if (r != null) return r;
+        return ShellPng(path, size);
+    }
+
+    /// PE 文件内嵌图标（.exe/.dll/.ico），取最大可用帧
+    private static byte[] PePng(string path, int size) {
         int[] tries = new int[] { size, 256, 128, 96, 64, 48, 32 };
         foreach (int s in tries) {
             if (s <= 0) continue;
@@ -100,6 +136,58 @@ public static class NovaIcon {
             } catch { } finally { DestroyIcon(h[0]); }
         }
         return null;
+    }
+
+    /// 系统 Shell 图标：文件夹 → 文件夹图标；各类文件 → 资源管理器里同样的关联图标
+    private static byte[] ShellPng(string path, int size) {
+        if (string.IsNullOrEmpty(path) || size <= 0) return null;
+        IntPtr hbm = IntPtr.Zero;
+        object com = null;
+        try {
+            Guid iid = IID_IShellItemImageFactory;
+            try { SHCreateItemFromParsingName(path, IntPtr.Zero, ref iid, out com); } catch { return null; }
+            IShellItemImageFactory f = com as IShellItemImageFactory;
+            if (f == null) return null;
+            SIZE sz = new SIZE(); sz.cx = size; sz.cy = size;
+            try { f.GetImage(sz, SIIGBF_ICONONLY, out hbm); } catch { return null; }
+            if (hbm == IntPtr.Zero) return null;
+            using (Bitmap bm = FromHBitmap(hbm)) {
+                if (bm == null) return null;
+                using (MemoryStream ms = new MemoryStream()) {
+                    bm.Save(ms, ImageFormat.Png);
+                    return ms.ToArray();
+                }
+            }
+        } catch { return null; } finally {
+            if (hbm != IntPtr.Zero) { try { DeleteObject(hbm); } catch { } }
+            if (com != null) { try { Marshal.ReleaseComObject(com); } catch { } }
+        }
+    }
+
+    /// HBITMAP → 32bpp ARGB Bitmap。不能直接用 Bitmap.FromHbitmap：那条路会丢掉 alpha，
+    /// 图标边缘会变成黑块。用 GetDIBits 拷贝原始像素才能保住透明通道。
+    private static Bitmap FromHBitmap(IntPtr hbm) {
+        BITMAP bm = new BITMAP();
+        if (GetObject(hbm, Marshal.SizeOf(typeof(BITMAP)), ref bm) == 0) return null;
+        int w = bm.bmWidth, h = bm.bmHeight;
+        if (w <= 0 || h <= 0) return null;
+        Bitmap bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
+        BitmapData bd = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        bool ok = false;
+        try {
+            BITMAPINFO bi = new BITMAPINFO();
+            bi.bmiHeader.biSize = Marshal.SizeOf(typeof(BITMAPINFOHEADER));
+            bi.bmiHeader.biWidth = w;
+            bi.bmiHeader.biHeight = -h;   // 负数 = 自顶向下，与 GDI+ 扫描线顺序一致
+            bi.bmiHeader.biPlanes = 1;
+            bi.bmiHeader.biBitCount = 32;
+            bi.bmiHeader.biCompression = 0;   // BI_RGB
+            IntPtr hdc = GetDC(IntPtr.Zero);
+            try { ok = GetDIBits(hdc, hbm, 0, (uint)h, bd.Scan0, ref bi, 0) != 0; }
+            finally { ReleaseDC(IntPtr.Zero, hdc); }
+        } finally { bmp.UnlockBits(bd); }
+        if (!ok) { bmp.Dispose(); return null; }
+        return bmp;
     }
 }
 '@
@@ -404,46 +492,37 @@ using System.Collections.Generic;
 public class NovaForm : Form {
     public Action NovaDpiChanged;
     public Action<string[]> NovaFilesDropped;
-
+    public Action<bool> NovaDragState;
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
-
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    private static extern void DragAcceptFiles(IntPtr hWnd, bool fAccept);
-
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    private static extern uint DragQueryFile(IntPtr hDrop, uint iFile, StringBuilder lpszFile, uint cch);
-
-    [DllImport("shell32.dll")]
-    private static extern void DragFinish(IntPtr hDrop);
-
+    [DllImport("user32.dll", EntryPoint="SetWindowLongPtrW")] static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+    [DllImport("user32.dll", EntryPoint="GetWindowLongPtrW")] static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern void DragAcceptFiles(IntPtr hWnd, bool fAccept);
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern uint DragQueryFile(IntPtr hDrop, uint iFile, StringBuilder lpszFile, uint cch);
+    [DllImport("shell32.dll")] static extern void DragFinish(IntPtr hDrop);
+    protected override void OnHandleCreated(EventArgs e) {
+        base.OnHandleCreated(e);
+        IntPtr style = GetWindowLongPtr(this.Handle, -16);
+        SetWindowLongPtr(this.Handle, -16, new IntPtr(style.ToInt64() | 0x20000));
+    }
     public void EnableNovaFileDrop() {
         DragAcceptFiles(this.Handle, true);
     }
-
-    public void DisableNovaFileDrop() {
-        try { DragAcceptFiles(this.Handle, false); } catch { }
-    }
-
+    public void DisableNovaFileDrop() { try { DragAcceptFiles(this.Handle, false); } catch { } }
     protected override void WndProc(ref Message m) {
-        // WM_DROPFILES：使用 Win32 文件拖放，不使用 OLE IDropTarget，避免与 WebView2 的拖放机制冲突。
         if (m.Msg == 0x0233) {
             try {
                 uint count = DragQueryFile(m.WParam, 0xFFFFFFFF, null, 0);
                 var files = new List<string>();
                 for (uint i = 0; i < count; i++) {
-                    var sb = new StringBuilder(32768);
+                    StringBuilder sb = new StringBuilder(32768);
                     uint len = DragQueryFile(m.WParam, i, sb, (uint)sb.Capacity);
                     if (len > 0) files.Add(sb.ToString());
                 }
                 DragFinish(m.WParam);
                 if (NovaFilesDropped != null && files.Count > 0) NovaFilesDropped(files.ToArray());
-            } catch {
-                try { DragFinish(m.WParam); } catch { }
-            }
-            m.Result = IntPtr.Zero;
-            return;
+            } catch { try { DragFinish(m.WParam); } catch { } }
+            m.Result = IntPtr.Zero; return;
         }
-
         if (m.Msg == 0x02E0) {
             RECT rc = (RECT)Marshal.PtrToStructure(m.LParam, typeof(RECT));
             this.Location = new Point(rc.Left, rc.Top);
@@ -452,6 +531,174 @@ public class NovaForm : Form {
             m.Result = IntPtr.Zero; return;
         }
         base.WndProc(ref m);
+    }
+}
+'@
+}
+
+# ---------------------------------------------------------------------------
+# NovaDrop: 宿主自建 OLE 拖放目标（IDropTarget）
+#   背景：WebView2 子窗口（Chrome_WidgetWin_0 等）覆盖整个客户区，其自带的
+#   drop target 会吞掉从资源管理器拖来的文件。关闭 AllowExternalDrop 后
+#   WebView2 交出落点，由本类在「主窗口 + 全部子窗口」上 RegisterDragDrop，
+#   直接取 CF_HDROP 绝对路径，并在拖拽悬停时回调前端显示遮罩。
+# ---------------------------------------------------------------------------
+if (-not ('NovaDrop' -as [type])) {
+    Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Windows.Forms;
+
+public class NovaDrop {
+    [StructLayout(LayoutKind.Sequential)] public struct POINTL { public int x; public int y; }
+
+    public const uint DROPEFFECT_NONE = 0;
+    public const uint DROPEFFECT_LINK = 4;
+
+    // IDropTarget 的 GDI/COM 坐标点必须用结构体传值，不可退化成 long（会导致签名不匹配、回调不触发）
+    [ComImport, Guid("00000122-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IDropTarget {
+        [PreserveSig] int DragEnter([MarshalAs(UnmanagedType.Interface)] object pDataObj, uint grfKeyState, POINTL pt, ref uint pdwEffect);
+        [PreserveSig] int DragOver(uint grfKeyState, POINTL pt, ref uint pdwEffect);
+        [PreserveSig] int DragLeave();
+        [PreserveSig] int Drop([MarshalAs(UnmanagedType.Interface)] object pDataObj, uint grfKeyState, POINTL pt, ref uint pdwEffect);
+    }
+
+    [DllImport("ole32.dll")] private static extern int RegisterDragDrop(IntPtr hwnd, IDropTarget pDropTarget);
+    [DllImport("ole32.dll")] private static extern int RevokeDragDrop(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr hWndParent, EnumProc lpEnumFunc, IntPtr lParam);
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassNameW(IntPtr hWnd, StringBuilder sb, int max);
+
+    public delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+
+    // 静态字段持有委托与接口实例，防止 GC 回收后 COM 回调访问违例
+    private static DropTargetImpl _impl;
+    private static EnumProc _enumProc;
+    private static Control _ui;
+    private static Action<string> _onLog;
+    private static readonly HashSet<IntPtr> _registered = new HashSet<IntPtr>();
+
+    public static void Install(IntPtr formHwnd, Control ui, Action<string[]> onFiles, Action<bool> onDragState, Action<string> onLog) {
+        _ui = ui;
+        _onLog = onLog;
+        _impl = new DropTargetImpl(ui, onFiles, onDragState, onLog);
+        _enumProc = new EnumProc(OnChild);
+        _registered.Clear();
+        TryRegister(formHwnd);
+    }
+
+    /// 枚举主窗口及其全部子窗口并注册拖放目标；返回本次新注册的数量
+    public static int RegisterAll(IntPtr formHwnd) {
+        int before = _registered.Count;
+        TryRegister(formHwnd);
+        try { EnumChildWindows(formHwnd, _enumProc, IntPtr.Zero); }
+        catch (Exception ex) { Log("EnumChildWindows 失败：" + ex.Message); }
+        return _registered.Count - before;
+    }
+
+    private static bool OnChild(IntPtr hWnd, IntPtr lParam) { TryRegister(hWnd); return true; }
+
+    private static void TryRegister(IntPtr hWnd) {
+        if (hWnd == IntPtr.Zero || _impl == null) return;
+        if (_registered.Contains(hWnd)) {
+            if (IsWindow(hWnd)) return;
+            _registered.Remove(hWnd);   // 窗口已销毁，句柄可能被复用，需重新注册
+        }
+        int hr;
+        try {
+            hr = RegisterDragDrop(hWnd, _impl);
+            if (hr != 0) {
+                // 多半是 WebView2 关闭外部拖放前留下的旧注册，先撤销再重试
+                int rv = RevokeDragDrop(hWnd);
+                Log("RegisterDragDrop 失败 0x" + hr.ToString("X8") + "，RevokeDragDrop 0x" + rv.ToString("X8") + "，重试 " + Describe(hWnd));
+                hr = RegisterDragDrop(hWnd, _impl);
+            }
+        } catch (Exception ex) { Log("RegisterDragDrop 异常 " + Describe(hWnd) + "：" + ex.Message); return; }
+
+        if (hr == 0) { _registered.Add(hWnd); Log("已注册拖放目标 " + Describe(hWnd)); }
+        else { Log("注册拖放目标失败 " + Describe(hWnd) + " hr=0x" + hr.ToString("X8")); }
+    }
+
+    private static string Describe(IntPtr hWnd) {
+        string cls = "";
+        try { StringBuilder sb = new StringBuilder(256); GetClassNameW(hWnd, sb, 256); cls = sb.ToString(); } catch { }
+        return "hwnd=0x" + hWnd.ToInt64().ToString("X") + " [" + cls + "]";
+    }
+
+    private static void Log(string msg) { if (_onLog != null) { try { _onLog(msg); } catch { } } }
+
+    private class DropTargetImpl : IDropTarget {
+        private readonly Control _ui;
+        private readonly Action<string[]> _files;
+        private readonly Action<bool> _drag;
+        private readonly Action<string> _log;
+        private bool _accepting;
+
+        public DropTargetImpl(Control ui, Action<string[]> files, Action<bool> drag, Action<string> log) {
+            _ui = ui; _files = files; _drag = drag; _log = log;
+        }
+
+        private static IDataObject AsWinData(object pDataObj) {
+            if (pDataObj == null) return null;
+            IDataObject d = pDataObj as IDataObject;
+            if (d == null) d = new DataObject(pDataObj);
+            return d;
+        }
+        private static bool HasFiles(object pDataObj) {
+            try { IDataObject d = AsWinData(pDataObj); return d != null && d.GetDataPresent(DataFormats.FileDrop); }
+            catch { return false; }
+        }
+
+        // 必须在 Drop 返回前把路径取出来：返回后 IDataObject 随时可能被释放
+        private static string[] Extract(object pDataObj) {
+            try {
+                IDataObject d = AsWinData(pDataObj);
+                if (d == null || !d.GetDataPresent(DataFormats.FileDrop)) return null;
+                return d.GetData(DataFormats.FileDrop) as string[];
+            } catch { return null; }
+        }
+
+        private void Post(Action a) {
+            if (a == null) return;
+            try {
+                if (_ui != null && _ui.IsHandleCreated) _ui.BeginInvoke(a);
+                else a();
+            } catch { }
+        }
+        private void Notify(bool active) {
+            if (_drag == null) return;
+            Post((Action)(() => { try { _drag(active); } catch { } }));
+        }
+
+        public int DragEnter(object pDataObj, uint grfKeyState, POINTL pt, ref uint pdwEffect) {
+            _accepting = HasFiles(pDataObj);
+            pdwEffect = _accepting ? DROPEFFECT_LINK : DROPEFFECT_NONE;
+            if (_accepting) Notify(true);
+            return 0;
+        }
+        public int DragOver(uint grfKeyState, POINTL pt, ref uint pdwEffect) {
+            pdwEffect = _accepting ? DROPEFFECT_LINK : DROPEFFECT_NONE;
+            return 0;
+        }
+        public int DragLeave() {
+            _accepting = false;
+            Notify(false);
+            return 0;
+        }
+        public int Drop(object pDataObj, uint grfKeyState, POINTL pt, ref uint pdwEffect) {
+            string[] files = Extract(pDataObj);
+            _accepting = false;
+            pdwEffect = DROPEFFECT_LINK;
+            Notify(false);
+            if (files != null && files.Length > 0 && _files != null) {
+                if (_log != null) { try { _log("Drop 收到 " + files.Length + " 项"); } catch { } }
+                Post((Action)(() => { try { _files(files); } catch { } }));
+            }
+            return 0;
+        }
     }
 }
 '@
@@ -753,6 +1000,17 @@ function Launch-App($item) {
         return [pscustomobject]@{ ok = $true; msg = "已启动 $($item.name)$tail" }
     }
     if (-not (Test-Path -LiteralPath $p)) { return [pscustomobject]@{ ok = $false; msg = '文件不存在，可能已被移动或删除' } }
+    # 文件夹：交给资源管理器打开（Start-Process -FilePath 对目录无效）
+    $isDir = $false
+    try { $isDir = (Get-Item -LiteralPath $p -ErrorAction Stop).PSIsContainer } catch { }
+    if ($isDir) {
+        $before = @([NovaWindow]::SnapshotTopLevel(120, 80))
+        try { Start-Process explorer.exe -ArgumentList $p | Out-Null; Write-Log "启动(文件夹):$p" }
+        catch { return [pscustomobject]@{ ok = $false; msg = $_.Exception.Message } }
+        $w = Bring-NewWindowToFront -Before $before
+        $tail = if ($w) { '' } else { '（窗口已就绪但未捕捉到，可能已在运行）' }
+        return [pscustomobject]@{ ok = $true; msg = "已打开文件夹 $($item.name)$tail" }
+    }
     $before = @([NovaWindow]::SnapshotTopLevel(120, 80))
     $proc = $null
     try {
@@ -772,19 +1030,27 @@ function Launch-App($item) {
 # 文件选择对话框（直接在 UI 线程显示，与 pickImage 一致，避免跨线程崩溃）
 # ---------------------------------------------------------------------------
 function Show-OpenFileDialog {
+    param(
+        [string]$Title = '选择要添加到 Nova Launcher 的应用',
+        [switch]$Single
+    )
     Add-Type -AssemblyName System.Windows.Forms
     $d = New-Object System.Windows.Forms.OpenFileDialog
-    $d.Title = '选择要添加到 Nova Launcher 的应用'
+    $d.Title = $Title
     $d.Filter = '应用程序 (*.exe;*.lnk;*.bat;*.cmd)|*.exe;*.lnk;*.bat;*.cmd|所有文件 (*.*)|*.*'
-    $d.Multiselect = $true
+    $d.Multiselect = (-not $Single)
     $d.RestoreDirectory = $true
     $d.CheckFileExists = $true
     $files = [System.Collections.ArrayList]::new()
     $owner = if ($form) { $form } else { $null }
-    if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
-        foreach ($f in $d.FileNames) { [void]$files.Add($f) }
-    }
-    return $files
+    try {
+        if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
+            foreach ($f in $d.FileNames) { [void]$files.Add($f) }
+        }
+    } finally { try { $d.Dispose() } catch { } }
+    # 必须用 ,$files 返回：不加逗号 PowerShell 会把 ArrayList 展开，
+    # 单元素时退化成字符串，$files[0] 会取到路径的第一个字符。
+    return ,$files
 }
 
 # ---------------------------------------------------------------------------
@@ -1011,18 +1277,20 @@ $form.NovaDpiChanged = {
 }
 
 # ---------------------------------------------------------------------------
-# 原生文件拖放：WM_DROPFILES -> Add-AppPath
-# 这里只记录真实文件路径到 apps.json，不创建 .lnk 文件。
+# 文件拖放落点处理（由 NovaDrop 的 IDropTarget 回调，WM_DROPFILES 作为回退）
+# 拿到的是资源管理器给的完整绝对路径，直接记录到 apps.json，不做任何搜索解析。
+# 支持任意文件与文件夹：可执行类（.exe/.lnk/.bat/.cmd）直接启动，
+# 其余文件交给系统默认关联程序打开，文件夹用资源管理器打开。
 # ---------------------------------------------------------------------------
 $form.NovaFilesDropped = {
     param([string[]]$files)
 
     if (-not $files -or $files.Count -eq 0) { return }
-    Write-Log "收到文件拖拽：$($files -join ' | ')"
+    Write-Log "收到文件拖拽：共 $($files.Count) 项"
 
     $added = @()
     $failed = @()
-    $allowed = @('.exe', '.lnk', '.bat', '.cmd')
+    $runnable = @('.exe', '.lnk', '.bat', '.cmd')
 
     foreach ($file in $files) {
         $full = [string]$file
@@ -1034,17 +1302,24 @@ $form.NovaFilesDropped = {
                 throw '文件不存在或已被移动'
             }
 
-            try { $full = (Get-Item -LiteralPath $full -ErrorAction Stop).FullName } catch { }
-            $ext = [System.IO.Path]::GetExtension($full).ToLowerInvariant()
-            if ($allowed -notcontains $ext) {
-                throw "不支持的文件类型：$ext（仅支持 .exe / .lnk / .bat / .cmd）"
+            $item = $null
+            try { $item = Get-Item -LiteralPath $full -ErrorAction Stop; $full = $item.FullName } catch { }
+
+            if ($item -and $item.PSIsContainer) {
+                $name = [System.IO.Path]::GetFileName($full.TrimEnd('\'))
+                $kind = 'folder'
+            } else {
+                $ext = [System.IO.Path]::GetExtension($full).ToLowerInvariant()
+                $name = [System.IO.Path]::GetFileNameWithoutExtension($full)
+                $kind = if ($runnable -contains $ext) { $ext.TrimStart('.') } else { 'file' }
             }
 
-            $name = [System.IO.Path]::GetFileNameWithoutExtension($full)
-            $kind = $ext.TrimStart('.')
+            if ([string]::IsNullOrWhiteSpace($name)) { $name = $full }
+            Write-Log "拖拽处理[$kind]：$full"
+
             $r = Add-AppPath $full $name $kind
             if ($r) {
-                $added += [pscustomobject]@{ name = [string]$r.name; path = [string]$r.path }
+                $added += [pscustomobject]@{ name = [string]$r.name; path = [string]$r.path; kind = $kind }
                 Write-Log "拖拽添加成功：$name -> $full"
             } else {
                 throw 'Add-AppPath 返回失败'
@@ -1058,17 +1333,32 @@ $form.NovaFilesDropped = {
 
     Write-Log "文件拖拽处理完成：成功 $($added.Count) 个，失败 $($failed.Count) 个"
 
-    # 通知前端重新读取 state，刷新首页应用列表。
+    # 通知前端刷新应用列表（op 必须与前端 nova-launcher.html 的监听分支一致）
     if ($script:WebView) {
         try {
-            $payload = @{ type = 'novaFilesDropped'; added = @($added); failed = @($failed) } |
-                ConvertTo-Json -Depth 8 -Compress
+            $payload = @{
+                op          = 'appsChanged'
+                added       = $added.Count
+                failed      = $failed.Count
+                items       = @($added)
+                failedItems = @($failed)
+            } | ConvertTo-Json -Depth 8 -Compress
             $script:WebView.PostWebMessageAsString($payload)
-            Write-Log '已通知前端刷新应用列表'
+            Write-Log "已通知前端刷新应用列表（成功 $($added.Count)，失败 $($failed.Count)）"
         } catch {
             Write-Log "通知前端刷新失败：$($_.Exception.Message)"
         }
     }
+}
+
+# 拖拽悬停状态 -> 前端遮罩显示/隐藏（AllowExternalDrop 关闭后页面收不到 dragenter）
+$form.NovaDragState = {
+    param([bool]$active)
+    if (-not $script:WebView) { return }
+    try {
+        $payload = @{ op = 'dragState'; active = [bool]$active } | ConvertTo-Json -Depth 4 -Compress
+        $script:WebView.PostWebMessageAsString($payload)
+    } catch { }
 }
 
 function Set-NovaWindowLayout([switch]$Windowed) {
@@ -1111,6 +1401,7 @@ $script:InitCtrlTask = $null
 $script:InitEnvironment = $null
 $script:InitTimer = $null
 $script:PreheatQueue = $null
+$script:DropRegTimer = $null
 
 function Start-NovaWebViewInit {
     $script:InitStep = 0
@@ -1118,6 +1409,21 @@ function Start-NovaWebViewInit {
     $script:InitTimer.Interval = 50
     $script:InitTimer.Add_Tick({ Step-NovaWebViewInit })
     $script:InitTimer.Start()
+}
+
+# WebView2 在导航、缩放、DPI 变化时会重建子窗口，导致已注册的拖放目标丢失。
+# 用低频定时器幂等重注册（已注册过的窗口会被跳过，不会重复 RegisterDragDrop）。
+function Start-NovaDropRegTimer {
+    if ($script:DropRegTimer) { return }
+    $script:DropRegTimer = New-Object System.Windows.Forms.Timer
+    $script:DropRegTimer.Interval = 1500
+    $script:DropRegTimer.Add_Tick({
+        try {
+            $n = [NovaDrop]::RegisterAll($form.Handle)
+            if ($n -gt 0) { Write-Log "拖放目标补注册：新增 $n 个窗口" }
+        } catch { }
+    })
+    $script:DropRegTimer.Start()
 }
 
 function Step-NovaWebViewInit {
@@ -1153,8 +1459,23 @@ function Step-NovaWebViewInit {
                     }
                     $script:WebController = $script:InitCtrlTask.Result
                     $script:WebView = $script:WebController.CoreWebView2
-                    # WebView2 初始化后再次启用 WM_DROPFILES，确保父 Form 继续接收文件拖放。
+                    # 关键：关闭 WebView2 自带的外部拖放。否则 WebView2 会在自己的子窗口
+                    # （Chrome_WidgetWin_0 等，覆盖整个客户区）上注册 OLE drop target，
+                    # 吞掉从资源管理器拖来的文件，宿主的 IDropTarget / WM_DROPFILES 永远收不到。
+                    try {
+                        $script:WebController.AllowExternalDrop = $false
+                        Write-Log "AllowExternalDrop 已设为 $($script:WebController.AllowExternalDrop)"
+                    } catch { Write-Log "设置 AllowExternalDrop 失败：$($_.Exception.Message)" }
+                    # WM_DROPFILES 作为回退路径保留（正常情况下由下面的 IDropTarget 接管）
                     try { $form.EnableNovaFileDrop(); Write-Log 'WebView2 初始化后重新启用 WM_DROPFILES 文件拖放' } catch { Write-Log "WebView2 初始化后启用文件拖放失败：$($_.Exception.Message)" }
+                    # 在「主窗口 + 全部子窗口」上注册宿主自建拖放目标，直接拿 CF_HDROP 绝对路径
+                    try {
+                        [NovaDrop]::Install($form.Handle, $form,
+                            $form.NovaFilesDropped, $form.NovaDragState,
+                            [Action[string]]{ param($m) Write-Log $m })
+                        $n = [NovaDrop]::RegisterAll($form.Handle)
+                        Write-Log "宿主拖放目标安装完成，本次新注册 $n 个窗口"
+                    } catch { Write-Log "安装宿主拖放目标失败：$($_.Exception.Message)" }
                     try { $script:WebController.DefaultBackgroundColor = [System.Drawing.Color]::Transparent } catch { Write-Log "Transparent bg not supported: $($_.Exception.Message)" }
                     $script:WebController.Bounds = $form.ClientRectangle
                     $script:WebController.IsVisible = $true
@@ -1166,6 +1487,7 @@ function Step-NovaWebViewInit {
                     $script:InitStep = 3
                     Write-Log "WebView2 初始化完成"
                     $script:PreheatQueue = New-IconPreheatQueue
+                    Start-NovaDropRegTimer
                     Initialize-NovaDebugHook
                 }
             }
@@ -1278,7 +1600,7 @@ function Invoke-NovaApi([string]$op, $data) {
                 return [pscustomobject]@{ ok = $false; msg = 'no icon' }
             }
             $apps = Get-Apps; $i = -1
-            if ($data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
+            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
             if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = 'no such app' } }
             $size = 256
             if ($data.s) { [int]::TryParse([string]$data.s, [ref]$size) | Out-Null }
@@ -1308,7 +1630,7 @@ function Invoke-NovaApi([string]$op, $data) {
         }
         'launch' {
             $apps = Get-Apps; $i = -1
-            if ($data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
+            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
             if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
             return (Launch-App $apps[$i])
         }
@@ -1380,7 +1702,7 @@ function Invoke-NovaApi([string]$op, $data) {
         }
         'remove' {
             $apps = Get-Apps; $i = -1
-            if ($data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
+            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$i) | Out-Null }
             if ($i -lt 0 -or $i -ge $apps.Count) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
             $name = $apps[$i].name; $rest = @()
             for ($k = 0; $k -lt $apps.Count; $k++) { if ($k -ne $i) { $rest += $apps[$k] } }
@@ -1395,11 +1717,52 @@ function Invoke-NovaApi([string]$op, $data) {
             $apps = Get-Apps; $n = @($apps).Count; $idx = -1
             $wantPath = [string]$data.p
             if ($wantPath) { for ($k = 0; $k -lt $n; $k++) { if ([string]$apps[$k].path -eq $wantPath) { $idx = $k; break } } }
-            if ($idx -lt 0 -and $data.i) { [int]::TryParse([string]$data.i, [ref]$idx) | Out-Null }
+            if ($idx -lt 0 -and $null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$idx) | Out-Null }
             if ($idx -lt 0 -or $idx -ge $n) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
             $old = [string]$apps[$idx].name
             if ($old -ne $newName) { $apps[$idx].name = $newName; Save-Apps $apps; Write-Log "重命名：$old -> $newName" }
             return [pscustomobject]@{ ok = $true; name = $newName; msg = "已重命名为 $newName" }
+        }
+        'pickone' {
+            # 右键菜单「选择应用」：选一个可执行文件，返回其绝对路径供 editpath 使用
+            $files = Show-OpenFileDialog -Title '选择应用' -Single
+            if (-not $files -or $files.Count -eq 0) { return [pscustomobject]@{ ok = $false; cancelled = $true; msg = '已取消' } }
+            return [pscustomobject]@{ ok = $true; path = [string]$files[0] }
+        }
+        'editpath' {
+            # 右键菜单「选择应用」/「编辑应用地址」：改写指定应用的路径，并同步 kind
+            $apps = Get-Apps; $n = @($apps).Count; $idx = -1
+            # 注意：索引 0 必须能通过，不能用 if($data.i)（PowerShell 里 if(0) 为 false）
+            if ($null -ne $data.i) { [int]::TryParse([string]$data.i, [ref]$idx) | Out-Null }
+            if ($idx -lt 0 -or $idx -ge $n) { return [pscustomobject]@{ ok = $false; msg = '应用不存在' } }
+
+            $newPath = ([string]$data.p).Trim().Trim('"')
+            if ([string]::IsNullOrWhiteSpace($newPath)) { return [pscustomobject]@{ ok = $false; msg = '路径不能为空' } }
+
+            $isDir = $false
+            if ($newPath -notlike 'shell:*') {
+                if (-not (Test-Path -LiteralPath $newPath)) { return [pscustomobject]@{ ok = $false; msg = '文件不存在或已被移动' } }
+                try { $item = Get-Item -LiteralPath $newPath -ErrorAction Stop; $newPath = $item.FullName; $isDir = $item.PSIsContainer } catch { }
+            }
+
+            $old = [string]$apps[$idx].path
+            if ($old -ine $newPath) {
+                $ext = [System.IO.Path]::GetExtension($newPath).ToLowerInvariant()
+                $k = if ($isDir) { 'folder' } elseif (@('.exe', '.lnk', '.bat', '.cmd') -contains $ext) { $ext.TrimStart('.') } else { 'file' }
+                # 名称跟随新路径重算（命名规则与 Add-AppPath 一致），否则会出现
+                # 地址指向新程序、标题还是旧名字的割裂状态
+                $newName = if ($newPath -like 'shell:*') { $newPath } elseif ($isDir) { [System.IO.Path]::GetFileName($newPath.TrimEnd('\')) } else { [System.IO.Path]::GetFileNameWithoutExtension($newPath) }
+                if ([string]::IsNullOrWhiteSpace($newName)) { $newName = $newPath }
+                $oldName = [string]$apps[$idx].name
+
+                $apps[$idx].path = $newPath
+                $apps[$idx].name = $newName
+                if ($apps[$idx].PSObject.Properties['kind']) { $apps[$idx].kind = $k }
+                else { $apps[$idx] | Add-Member -NotePropertyName 'kind' -NotePropertyValue $k }
+                Save-Apps $apps
+                Write-Log "编辑地址：$old -> $newPath（名称 $oldName -> $newName，kind=$k）"
+            }
+            return [pscustomobject]@{ ok = $true; path = $newPath; msg = '路径已更新' }
         }
         'move' {
             $from = -1; $to = -1
@@ -1454,7 +1817,7 @@ function Invoke-NovaApi([string]$op, $data) {
         }
         'reveal' {
             $tgt = [string]$data.p
-            if (-not $tgt -and $data.i) {
+            if (-not $tgt -and $null -ne $data.i) {
                 $idx = -1; [int]::TryParse([string]$data.i, [ref]$idx) | Out-Null
                 $apps = Get-Apps
                 if ($idx -ge 0 -and $idx -lt @($apps).Count) { $tgt = [string]$apps[$idx].path }
@@ -1554,6 +1917,7 @@ try {
 
     $form.Add_FormClosed({
         try { $form.DisableNovaFileDrop() } catch { }
+        try { if ($script:DropRegTimer) { $script:DropRegTimer.Stop(); $script:DropRegTimer.Dispose(); $script:DropRegTimer = $null } } catch { }
         try {
             $preheatTimer.Stop()
             if ($script:WebController) { $script:WebController.Close() }
