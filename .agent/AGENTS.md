@@ -14,8 +14,9 @@
 | 平台 | 仅 Windows 10 / Windows 11 x64（需 WebView2 Runtime） |
 | 权威文档 | `DOCS/07Nova Launcher M40 详细开发任务拆解（可直接交给豆包执行）.md` |
 | GitHub | https://github.com/TonyYu329/NovaLauncher（main） |
-| 版本 | **V0.0.8**（已发布 GitHub Release，2026-09-16）；最新 commit `9e6359a`（已 push main） |
+| 版本 | **V0.0.8**（已发布 GitHub Release 并实测验证，2026-09-16）；tag `v0.0.8` → 附注 tag → `305540f`；最新 commit `70b852a`（已 push main） |
 | 版本号来源 | 前端 `APP_META` 常量（`nova-launcher.html` 脚本头部）——抽屉副标题与「关于」弹窗共用，**升级只改这一处** |
+| 发布人 | **Tony**（不是 GitHub 账号 TonyYu329，「关于」弹窗里填的是前者） |
 
 ## 构建、测试与校验
 
@@ -23,6 +24,22 @@
 - 语法校验：`[System.Management.Automation.Language.Parser]::ParseFile()` 检查 ps1；`node --check` 检查前端 JS
 - 验证：每次改完必须启动测试 + 截图目视，仅日志/数值不算完成
 - 前端调试：DataDir 放 DEBUG.flag，写 `__SHOT__` 到 debug-js.txt 触发 CDP 截图
+
+## 发布流程（四步验证，缺一不算发完）
+
+V0.0.6 曾从过期副本打包，导致**已发布**的包缺功能。此后固定流程：
+
+1. **改版本** → 只改 `Source/data/nova-launcher.html` 的 `APP_META`；更新 `README.md` 标题+版本历史；追加 `Source/修改记录.md`
+2. **打包** → 必须从 `Source/` 目录，用 .NET `ZipArchive` + `Encoding.UTF8`（**不能用 `Compress-Archive`**，PS5.1 下中文条目名会乱码）
+   ```
+   8 个条目：data/{nova-launcher.html, nova-logo.ico, NovaLauncher.ps1, lib/*.dll},
+             NovaLauncher.bat, README.md, 修改记录.md
+   ```
+3. **比对** → 包内 `nova-launcher.html` / `NovaLauncher.ps1` 字节数必须等于源目录；用 .NET 回读中文条目名的 Unicode 码点
+4. **实跑** → 解压到临时目录，启动 `NovaLauncher.bat`，确认窗口存活 + `host.log` 无报错
+5. 最后 `git add`（**不含 `settings.json`**）→ commit → `tag -a` → push → `gh release create`
+
+**注意**：`gh release delete --cleanup-tag` 会把**本地 tag 也删掉**；`gh release create` 自动建的 tag 是**轻量 tag**，仓库惯例（v0.0.5~v0.0.8）是**附注 tag**，需 `git tag -f -a` + `git push --force` 对齐。
 
 ## 目录结构
 

@@ -496,10 +496,17 @@ public class NovaForm : Form {
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern void DragAcceptFiles(IntPtr hWnd, bool fAccept);
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] static extern uint DragQueryFile(IntPtr hDrop, uint iFile, StringBuilder lpszFile, uint cch);
     [DllImport("shell32.dll")] static extern void DragFinish(IntPtr hDrop);
+    protected override CreateParams CreateParams {
+        get {
+            CreateParams cp = base.CreateParams;
+            cp.Style |= 0x20000 | 0x80000;
+            return cp;
+        }
+    }
     protected override void OnHandleCreated(EventArgs e) {
         base.OnHandleCreated(e);
         IntPtr style = GetWindowLongPtr(this.Handle, -16);
-        SetWindowLongPtr(this.Handle, -16, new IntPtr(style.ToInt64() | 0x20000));
+        SetWindowLongPtr(this.Handle, -16, new IntPtr(style.ToInt64() | 0x20000 | 0x80000));
     }
     public void EnableNovaFileDrop() {
         DragAcceptFiles(this.Handle, true);
@@ -1260,7 +1267,7 @@ $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
 $form.ShowInTaskbar   = $true
 $form.MaximizeBox     = $false
-$form.MinimizeBox     = $false
+$form.MinimizeBox     = $true
 $form.BackColor       = [System.Drawing.Color]::FromArgb(16, 16, 20)
 $form.Icon            = New-Object System.Drawing.Icon((Join-Path $DataDir 'nova-logo.ico'))
 $form.Text            = 'Nova Launcher'

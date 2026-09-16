@@ -186,28 +186,28 @@
         "kind":  "lnk"
     },
     {
-        "name":  "DeepSeek",
-        "path":  "C:\\Program Files\\DeepSeek.lnk",
-        "sort":  31,
-        "kind":  "lnk"
-    },
-    {
         "name":  "网易云音乐",
         "path":  "D:\\Program Files\\NetEase\\CloudMusic\\cloudmusic.exe",
-        "sort":  32,
+        "sort":  31,
         "kind":  "lnk"
     },
     {
         "name":  "控制面板",
         "path":  "C:\\Windows\\System32\\control.exe",
-        "sort":  33,
+        "sort":  32,
         "kind":  ""
     },
     {
         "name":  "Evernote",
         "path":  "C:\\Program Files (x86)\\Yinxiang Biji\\印象笔记\\Evernote.exe",
-        "sort":  34,
+        "sort":  33,
         "kind":  ""
+    },
+    {
+        "name":  "DeepSeek",
+        "path":  "C:\\Program Files\\DeepSeek.lnk",
+        "sort":  34,
+        "kind":  "lnk"
     },
     {
         "name":  "DSH后端",
