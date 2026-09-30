@@ -1,4 +1,4 @@
-# Nova Launcher · V0.0.9
+# Nova Launcher · V0.1.0
 
 极简的 Windows 应用启动页。**双击 `NovaLauncher.bat` 即用**，免安装、免运行时依赖。
 
@@ -27,7 +27,7 @@ HTML/CSS/JS UI
 ## 怎么用
 
 1. 双击 `Source\NovaLauncher.bat`，或双击 `Source\NovaLauncher.exe`（推荐，无控制台闪窗）
-2. 也可以把 `NovaLauncher.exe` 右键固定到任务栏，从任务栏一键启动（单图标，运行时高亮原位）
+2. 也可以把 `NovaLauncher.exe` 右键固定到任务栏，从任务栏一键启动（单图标，运行时高亮原位；固定项永远解析到**你实际运行的那个副本**——exe 每次启动自动注册应用身份，全新电脑零配置）
 3. 窗口自动进入**无边框最大化**（铺满工作区，任务栏照常可见）
 4. 首次使用时空状态显示"将应用拖拽到此处以添加"——拖入 EXE/快捷方式，或点击 ＋ 选择文件
 5. 点击图标 → 启动对应程序
@@ -72,7 +72,7 @@ HTML/CSS/JS UI
 | 文件 | 作用 |
 |------|------|
 | `Source\NovaLauncher.bat` | 唯一入口，双击启动 |
-| `Source\NovaLauncher.exe` | 启动器（WinExe 包装器）：无控制台闪窗、图标内嵌、可固定任务栏 |
+| `Source\NovaLauncher.exe` | 启动器（WinExe 包装器）：无控制台闪窗、图标内嵌、可固定任务栏；启动时自动注册应用身份（开始菜单 AUMID 快捷方式） |
 | `Source\NovaLauncherExe.cs` | 启动器源码（编译命令见文件头注释） |
 | `Source\data\NovaLauncher.ps1` | 宿主：WinForms + WebView2 + DWM 毛玻璃 |
 | `Source\data\nova-launcher.html` | 界面：HTML/CSS/JS |
@@ -86,7 +86,7 @@ HTML/CSS/JS UI
 ```
 Source\
 ├── NovaLauncher.bat        # 入口
-├── NovaLauncher.exe        # 启动器（可固定任务栏）
+├── NovaLauncher.exe        # 启动器（可固定任务栏，自动注册应用身份）
 ├── NovaLauncherExe.cs      # 启动器源码
 └── data\
     ├── NovaLauncher.ps1    # 宿主
@@ -99,6 +99,11 @@ Source\
 ```
 
 ## 版本历史
+
+### V0.1.0
+- **修复"固定到任务栏后启动的不是同一个应用"**：UI 窗口运行在 powershell.exe 宿主内，右键任务栏图标"固定"时 Windows 需把窗口 AUMID（`NovaLauncher.App`）解析为可启动目标——此前系统无该身份的注册项，固定产物会回退为宿主调用或指向另一副本，关闭后再点启动的不是同一个应用。现在 `NovaLauncher.exe` **每次启动自动注册应用身份**：创建/校准开始菜单快捷方式（`%APPDATA%\Microsoft\Windows\Start Menu\Programs\NovaLauncher.lnk`）指向当前运行的 exe 并携带 AUMID（`IPropertyStore` P/Invoke 写入；AUMID 必须在 `Save` 之后写，因 Save 会清除扩展属性；已一致则幂等跳过；刻意不重写任务栏固定项，避免剥掉 pin 元数据）。固定项从此永远解析到**用户实际运行的那个副本**，多份便携拷贝共存也不会串
+- **AUMID 声明提前到窗口创建之前**：ps1 顶层即调用 `SetCurrentProcessExplicitAppUserModelID("NovaLauncher.App")`，不再等任务栏图标设置函数——晚了任务栏按钮会绑到宿主 powershell.exe 的身份
+- **全新电脑零配置闭环**：解压 → 运行 `NovaLauncher.exe` → 自动完成身份注册 → 右键固定 → 关闭 → 任务栏再点 = 同一个应用；全程零硬编码路径（ps1 相对 exe 定位、powershell 走 PATH），单实例保护兜底（Mutex + 激活既有窗口）
 
 ### V0.0.9
 - **新增 `NovaLauncher.exe` 启动器**：系统自带 csc.exe 编译的 WinExe 包装器（零依赖），双击无控制台闪窗、图标内嵌，可直接右键固定到任务栏；定位零硬编码——`data\NovaLauncher.ps1` 相对 exe 所在目录解析，`powershell.exe` 走系统 PATH（与 bat 的 `where powershell.exe` 行为一致），找不到时弹窗提示

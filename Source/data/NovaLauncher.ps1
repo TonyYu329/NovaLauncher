@@ -445,6 +445,10 @@ public static class NovaTaskbar {
 '@
 }
 
+# 尽早声明 AppUserModelID：必须在任何窗口句柄创建之前调用，否则任务栏按钮会绑定到
+# 宿主 powershell.exe 的身份（跳转列表/图标变成 PowerShell、固定到任务栏解析不到本应用）。
+[NovaTaskbar]::SetCurrentProcessExplicitAppUserModelID("NovaLauncher.App") | Out-Null
+
 function Set-NovaTaskbarIcon([string]$iconPath) {
     # 设置 AppUserModelID，让 Windows 把本进程识别为独立应用
     [NovaTaskbar]::SetCurrentProcessExplicitAppUserModelID("NovaLauncher.App") | Out-Null
