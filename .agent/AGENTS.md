@@ -34,10 +34,12 @@ V0.0.6 曾从过期副本打包，导致**已发布**的包缺功能。此后固
 1. **改版本** → 只改 `Source/data/nova-launcher.html` 的 `APP_META`；更新 `README.md` 标题+版本历史；追加 `Source/修改记录.md`
 2. **打包** → 必须从 `Source/` 目录，用 .NET `ZipArchive` + `Encoding.UTF8`（**不能用 `Compress-Archive`**，PS5.1 下中文条目名会乱码）
    ```
-   10 个条目（V0.0.9 起）：data/{nova-launcher.html, nova-logo.ico, NovaLauncher.ps1, lib/*.dll},
-             NovaLauncher.bat, NovaLauncher.exe, NovaLauncherExe.cs, README.md, 修改记录.md
+   9 个条目（V0.0.9 修正，2026-09-30）：data/{nova-launcher.html, nova-logo.ico, NovaLauncher.ps1, lib/*.dll},
+             NovaLauncher.bat, NovaLauncher.exe, README.md, 修改记录.md
    ```
-   **注意**：打包脚本若含中文字面量（如 `修改记录.md`），脚本自身必须 UTF-8 BOM——.traetemp 无 BOM 脚本会被 PS5.1 按 ANSI 解码，中文路径变乱码找不到文件
+   **`NovaLauncherExe.cs` 不打包**——源码属开发者文件，GitHub 仓库已有，绿色版只含可运行文件（用户 2026-09-30 确认）
+   **注意**：打包脚本若含中文字面量（如 `修改记录.md`），脚本自身必须 UTF-8 BOM——.traetemp 无 BOM 脚本会被 PS5.1 按 ANSI 解码，中文路径变乱码找不到文件。规避法：用 `Get-ChildItem -Filter '*.md'` 模式匹配中文名文件，脚本保持纯 ASCII
+   - **本地产物位置**：`Release\NovaLauncher-V<版本>.zip`（该目录 gitignore，不入库；2026-09-30 用户指定）
 3. **比对** → 包内 `nova-launcher.html` / `NovaLauncher.ps1` 字节数必须等于源目录；用 .NET 回读中文条目名的 Unicode 码点
 4. **实跑** → 解压到临时目录，启动 `NovaLauncher.bat`，确认窗口存活 + `host.log` 无报错
 5. 最后 `git add`（**不含 `settings.json`**）→ commit → `tag -a` → push → `gh release create`
@@ -62,7 +64,8 @@ Source/
 ## 关键架构约定（M40）
 
 - **启动器（V0.0.9）**：NovaLauncher.exe 用系统 csc 编译（零依赖）；定位零硬编码（`data\NovaLauncher.ps1` 相对 exe，`powershell.exe` 走 PATH 与 bat 的 where 一致，找不到弹窗）；与 bat 参数完全一致（-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden）
-- **任务栏 AUMID（V0.0.9）**：单图标 = 双向声明——宿主进程 `SetCurrentProcessExplicitAppUserModelID("NovaLauncher.App")` + 固定项 lnk 属性 `System.AppUserModel.ID = NovaLauncher.App`。任务栏按 AUMID 归组，任一方缺失即双图标
+- **任务栏 AUMID（V0.0.9）**：单图标 = 双向声明——宿主进程 `SetCurrentProcessExplicitAppUserModelID("NovaLauncher.App")` + 固定项 lnk 属性 `System.AppUserModel.ID = NovaLauncher.App`。任务栏按 AUMID 归组，任一方缺失即双图标。**运行图标显示**：Win11 对显式 AUMID 窗口，图标优先从系统级 AUMID 注册（开始菜单快捷方式）解析，无注册则回退宿主 powershell.exe 图标（WM_SETICON/Form.Icon 被忽略）——因此**必须存在** `%APPDATA%\Microsoft\Windows\Start Menu\Programs\NovaLauncher.lnk`（带 AUMID + IconLocation，2026-09-30 已建，重装/换机需重建）
+- **单实例保护（V0.0.9 修正）**：ps1 头部命名 Mutex `Local\NovaLauncher.SingleInstance`——重复启动（桌面/任务栏任一入口）时按标题 'Nova Launcher'（EnumWindows+GetWindowTextW；**FindWindowW 对该无边框窗口失效**）找到既有窗口 → SW_RESTORE+SetForegroundWindow → exit 0。`$form.Text='Nova Launcher'` 是定位依据，勿改。改 ps1 后必须：补 BOM（Edit 工具会丢）→ 同步到实际部署副本（当前 `E:\Person\backup\lantian\sw\NovaLauncher-V0.0.9\data\`）
 - **窗口**：WinForms FormBorderStyle=None，OnHandleCreated 运行时 SetWindowLongPtr 加 WS_MINIMIZEBOX（任务栏点击最小化/恢复）
 - **DPI**：Per-Monitor V2（SetProcessDpiAwarenessContext PMv2）+ GetDpiForWindow（**禁止 GetDpiForSystem**，多显示器不准）+ WM_DPICHANGED 处理
 - **WebView2 初始化**：Form.Shown + Timer 轮询异步初始化（**禁止 .GetAwaiter().GetResult()/.Result 阻塞 UI 线程**，会死锁）

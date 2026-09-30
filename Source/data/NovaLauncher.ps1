@@ -29,6 +29,43 @@ public static class NovaConsole {
 $__consoleHwnd = [NovaConsole]::GetConsoleWindow()
 if ($__consoleHwnd -ne [IntPtr]::Zero) { [NovaConsole]::ShowWindow($__consoleHwnd, 0) | Out-Null }
 
+# --- 单实例保护（V0.0.9 修正）：已运行时激活既有窗口后退出，桌面/任务栏入口共享同一实例 ---
+Add-Type @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class NovaSingle {
+    public delegate bool EnumProc(IntPtr h, IntPtr l);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc cb, IntPtr l);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowTextW(IntPtr h, StringBuilder sb, int max);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+    public static IntPtr FindByTitle(string title) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr h, IntPtr l) {
+            if (IsWindowVisible(h)) {
+                var sb = new StringBuilder(256);
+                GetWindowTextW(h, sb, 256);
+                if (sb.ToString() == title) { found = h; return false; }
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+}
+"@
+$__newInstance = $false
+$__novaMutex = New-Object System.Threading.Mutex($true, 'Local\NovaLauncher.SingleInstance', [ref]$__newInstance)
+if (-not $__newInstance) {
+    $__existing = [NovaSingle]::FindByTitle('Nova Launcher')
+    if ($__existing -ne [IntPtr]::Zero) {
+        [NovaSingle]::ShowWindow($__existing, 9) | Out-Null    # SW_RESTORE（最小化则恢复）
+        [NovaSingle]::SetForegroundWindow($__existing) | Out-Null
+    }
+    exit 0
+}
+
 # 抑制 libpng 等原生库的控制台警告输出
 try { [Console]::SetOut([System.IO.TextWriter]::Null) } catch { }
 try { [Console]::SetError([System.IO.TextWriter]::Null) } catch { }
@@ -1263,6 +1300,7 @@ $script:WinClientW = 1180
 $script:WinClientH = 780
 
 $form = New-Object NovaForm
+$form.Text = 'Nova Launcher'   # 固定标题：单实例 FindWindowW 定位依据（无边框不显示，仅 Alt+Tab/任务管理器可见）
 $form.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
 $form.StartPosition   = [System.Windows.Forms.FormStartPosition]::Manual
 $form.ShowInTaskbar   = $true
