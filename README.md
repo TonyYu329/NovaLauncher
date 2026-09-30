@@ -1,4 +1,4 @@
-# Nova Launcher · V0.0.8
+# Nova Launcher · V0.0.9
 
 极简的 Windows 应用启动页。**双击 `NovaLauncher.bat` 即用**，免安装、免运行时依赖。
 
@@ -26,11 +26,12 @@ HTML/CSS/JS UI
 
 ## 怎么用
 
-1. 双击 `Source\NovaLauncher.bat`
-2. 窗口自动进入**无边框最大化**（铺满工作区，任务栏照常可见）
-3. 首次使用时空状态显示"将应用拖拽到此处以添加"——拖入 EXE/快捷方式，或点击 ＋ 选择文件
-4. 点击图标 → 启动对应程序
-5. 右上角 ⚙ 打开设置面板
+1. 双击 `Source\NovaLauncher.bat`，或双击 `Source\NovaLauncher.exe`（推荐，无控制台闪窗）
+2. 也可以把 `NovaLauncher.exe` 右键固定到任务栏，从任务栏一键启动（单图标，运行时高亮原位）
+3. 窗口自动进入**无边框最大化**（铺满工作区，任务栏照常可见）
+4. 首次使用时空状态显示"将应用拖拽到此处以添加"——拖入 EXE/快捷方式，或点击 ＋ 选择文件
+5. 点击图标 → 启动对应程序
+6. 右上角 ⚙ 打开设置面板
 
 ## 外观设置
 
@@ -71,6 +72,8 @@ HTML/CSS/JS UI
 | 文件 | 作用 |
 |------|------|
 | `Source\NovaLauncher.bat` | 唯一入口，双击启动 |
+| `Source\NovaLauncher.exe` | 启动器（WinExe 包装器）：无控制台闪窗、图标内嵌、可固定任务栏 |
+| `Source\NovaLauncherExe.cs` | 启动器源码（编译命令见文件头注释） |
 | `Source\data\NovaLauncher.ps1` | 宿主：WinForms + WebView2 + DWM 毛玻璃 |
 | `Source\data\nova-launcher.html` | 界面：HTML/CSS/JS |
 | `Source\data\nova-logo.ico` | 应用图标（任务栏/标题栏） |
@@ -83,6 +86,8 @@ HTML/CSS/JS UI
 ```
 Source\
 ├── NovaLauncher.bat        # 入口
+├── NovaLauncher.exe        # 启动器（可固定任务栏）
+├── NovaLauncherExe.cs      # 启动器源码
 └── data\
     ├── NovaLauncher.ps1    # 宿主
     ├── nova-launcher.html  # 界面
@@ -94,6 +99,11 @@ Source\
 ```
 
 ## 版本历史
+
+### V0.0.9
+- **新增 `NovaLauncher.exe` 启动器**：系统自带 csc.exe 编译的 WinExe 包装器（零依赖），双击无控制台闪窗、图标内嵌，可直接右键固定到任务栏；定位零硬编码——`data\NovaLauncher.ps1` 相对 exe 所在目录解析，`powershell.exe` 走系统 PATH（与 bat 的 `where powershell.exe` 行为一致），找不到时弹窗提示
+- **修复固定到任务栏后出现双图标**：任务栏按 AppUserModelID（AUMID）归组——宿主进程已显式声明 `NovaLauncher.App`，但固定项快捷方式没有该属性，两边身份对不上被认成两个应用。已给固定项补写 `System.AppUserModel.ID = NovaLauncher.App`（`IPropertyStore` P/Invoke 写入；`ExtendedProperty` 对该属性只读，此坑已记录），运行窗口与固定图标合并、点击高亮原位
+- 启动器源码 `NovaLauncherExe.cs` 归位 `Source\`（源代码等长期文件放正式目录，临时验证文件才放 `.traetemp` 且用完即删）
 
 ### V0.0.8
 - **新增「关于」弹窗**：设置抽屉新增「关于」分区，显示软件名称、版本号、发布日期、发布人（`Esc` / `✕` / 点遮罩均可关闭）
