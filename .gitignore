@@ -1,4 +1,5 @@
 Release/
+.traetemp/
 Source/data/WebView2Profile/
 Source/data/Icons/
 Source/data/bgimages/

@@ -10,17 +10,19 @@
 | 项目描述 | 极简 Windows 应用启动器：WinForms 无边框窗口 + WebView2 渲染 HTML UI，应用管理、搜索、毛玻璃/液态玻璃主题、右键编辑、点击启动 |
 | 技术栈（M40） | PowerShell 5.1 -STA + WinForms Form(FormBorderStyle=None) + CoreWebView2Controller + HTML/CSS/JS |
 | 数据存储 | 纯 JSON：`apps.json`（应用）+ `settings.json`（设置），**存于程序执行目录 `data/`**（绿色自包含） |
-| 交付形态 | 绿色版免安装：整个 `Source/` 即产物，双击 `Source\NovaLauncher.bat` 启动 |
+| 交付形态 | 绿色版免安装：整个 `Source/` 即产物，双击 `Source\NovaLauncher.bat` 或 `Source\NovaLauncher.exe` 启动（exe 可右键固定任务栏） |
 | 平台 | 仅 Windows 10 / Windows 11 x64（需 WebView2 Runtime） |
 | 权威文档 | `DOCS/07Nova Launcher M40 详细开发任务拆解（可直接交给豆包执行）.md` |
 | GitHub | https://github.com/TonyYu329/NovaLauncher（main） |
-| 版本 | **V0.0.8**（已重新发布 GitHub Release，2026-09-16）；tag `v0.0.8`；最新 commit `fdbebf7`（已 push main） |
+| 版本 | **V0.0.9**（GitHub Release，2026-09-30）；tag `v0.0.9`（附注，对象 `1cb4045`）；最新 commit `c9260ec`（已 push main） |
 | 版本号来源 | 前端 `APP_META` 常量（`nova-launcher.html` 脚本头部）——抽屉副标题与「关于」弹窗共用，**升级只改这一处** |
 | 发布人 | **Tony**（不是 GitHub 账号 TonyYu329，「关于」弹窗里填的是前者） |
 
 ## 构建、测试与校验
 
-- 运行：双击 `Source\NovaLauncher.bat`（无需编译，bat 全英文 ASCII）
+- 运行：双击 `Source\NovaLauncher.bat` 或 `Source\NovaLauncher.exe`（推荐，无控制台闪窗，可固定任务栏）
+- 重编译启动器：在 `Source\` 下执行 `NovaLauncherExe.cs` 头注释里的 csc 命令（源码纯 ASCII，勿加中文）
+- 任务栏单图标：固定项 lnk 必须带 `System.AppUserModel.ID = NovaLauncher.App`（与 ps1 的 SetCurrentProcessExplicitAppUserModelID 一致）；**重新固定 exe 后属性会丢**，须用 IPropertyStore P/Invoke 重写（`ExtendedProperty` 对 AUMID 只读），详见记忆库 ADR-NL013
 - 语法校验：`[System.Management.Automation.Language.Parser]::ParseFile()` 检查 ps1；`node --check` 检查前端 JS
 - 验证：每次改完必须启动测试 + 截图目视，仅日志/数值不算完成
 - 前端调试：DataDir 放 DEBUG.flag，写 `__SHOT__` 到 debug-js.txt 触发 CDP 截图
@@ -32,9 +34,10 @@ V0.0.6 曾从过期副本打包，导致**已发布**的包缺功能。此后固
 1. **改版本** → 只改 `Source/data/nova-launcher.html` 的 `APP_META`；更新 `README.md` 标题+版本历史；追加 `Source/修改记录.md`
 2. **打包** → 必须从 `Source/` 目录，用 .NET `ZipArchive` + `Encoding.UTF8`（**不能用 `Compress-Archive`**，PS5.1 下中文条目名会乱码）
    ```
-   8 个条目：data/{nova-launcher.html, nova-logo.ico, NovaLauncher.ps1, lib/*.dll},
-             NovaLauncher.bat, README.md, 修改记录.md
+   10 个条目（V0.0.9 起）：data/{nova-launcher.html, nova-logo.ico, NovaLauncher.ps1, lib/*.dll},
+             NovaLauncher.bat, NovaLauncher.exe, NovaLauncherExe.cs, README.md, 修改记录.md
    ```
+   **注意**：打包脚本若含中文字面量（如 `修改记录.md`），脚本自身必须 UTF-8 BOM——.traetemp 无 BOM 脚本会被 PS5.1 按 ANSI 解码，中文路径变乱码找不到文件
 3. **比对** → 包内 `nova-launcher.html` / `NovaLauncher.ps1` 字节数必须等于源目录；用 .NET 回读中文条目名的 Unicode 码点
 4. **实跑** → 解压到临时目录，启动 `NovaLauncher.bat`，确认窗口存活 + `host.log` 无报错
 5. 最后 `git add`（**不含 `settings.json`**）→ commit → `tag -a` → push → `gh release create`
@@ -45,7 +48,9 @@ V0.0.6 曾从过期副本打包，导致**已发布**的包缺功能。此后固
 
 ```text
 Source/
-├── NovaLauncher.bat            # 唯一入口（start /min + powershell -NoProfile -STA -WindowStyle Hidden）
+├── NovaLauncher.bat            # 入口（start /min + powershell -NoProfile -STA -WindowStyle Hidden）
+├── NovaLauncher.exe            # 启动器（V0.0.9）：WinExe 包装器，可固定任务栏
+├── NovaLauncherExe.cs          # 启动器源码（纯 ASCII，编译命令见头注释）
 └── data/
     ├── NovaLauncher.ps1        # 宿主：WinForms + WebView2Controller（UTF-8 BOM，必须带BOM）
     ├── nova-launcher.html      # 前端单文件
@@ -56,6 +61,8 @@ Source/
 
 ## 关键架构约定（M40）
 
+- **启动器（V0.0.9）**：NovaLauncher.exe 用系统 csc 编译（零依赖）；定位零硬编码（`data\NovaLauncher.ps1` 相对 exe，`powershell.exe` 走 PATH 与 bat 的 where 一致，找不到弹窗）；与 bat 参数完全一致（-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden）
+- **任务栏 AUMID（V0.0.9）**：单图标 = 双向声明——宿主进程 `SetCurrentProcessExplicitAppUserModelID("NovaLauncher.App")` + 固定项 lnk 属性 `System.AppUserModel.ID = NovaLauncher.App`。任务栏按 AUMID 归组，任一方缺失即双图标
 - **窗口**：WinForms FormBorderStyle=None，OnHandleCreated 运行时 SetWindowLongPtr 加 WS_MINIMIZEBOX（任务栏点击最小化/恢复）
 - **DPI**：Per-Monitor V2（SetProcessDpiAwarenessContext PMv2）+ GetDpiForWindow（**禁止 GetDpiForSystem**，多显示器不准）+ WM_DPICHANGED 处理
 - **WebView2 初始化**：Form.Shown + Timer 轮询异步初始化（**禁止 .GetAwaiter().GetResult()/.Result 阻塞 UI 线程**，会死锁）
