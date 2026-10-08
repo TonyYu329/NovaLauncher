@@ -892,8 +892,8 @@ const $ = id => document.getElementById(id);
    升级版本时只改这里，别再散落到 drawerSub 的静态 HTML 里各写一遍。 */
 const APP_META = {
   name: "Nova Launcher",
-  version: "V0.1.0",
-  releaseDate: "2026-10-01",
+  version: "V0.1.1",
+  releaseDate: "2026-10-08",
   publisher: "Tony",
 };
 
@@ -1231,16 +1231,20 @@ function applyStyle() {
   const winOpacity = winOpacityRaw;
   // “是否透明”只由透明度滑块决定：100% 就是完全不透明
   const transparent = winOpacity < 0.999;
+  // 背景图片是否生效。图片一旦生效它就是窗口的“底”，其不透明度必须跟着透明度滑块走；
+  // 做法是把整个 .backdrop（图片 + 光晕 + 噪点）当一个组按 opacity 淡出——组内先合成、
+  // 再整体淡出，所以图片与光晕之间不会出现两层 alpha 叠加，桌面透出量刚好等于滑块值。
+  const imgOn = !!(s.bgImageEnabled && s.bgImagePath);
+  const c3 = (x) => x.toFixed(3);
   const backdrop = document.querySelector(".backdrop");
   if (backdrop) {
-    backdrop.style.opacity = "1";
+    backdrop.style.opacity = imgOn ? c3(winOpacity) : "1";
     backdrop.style.background = "";  // 先清空交回 CSS，下面按需覆盖
   }
   // 透出 DWM 时：前端绝不用 backdrop-filter 去糊桌面（模糊由 DWM 实时完成），只叠染色
   root.classList.toggle("see-through", transparent);
   // 前端不再对背景做 CSS 高斯模糊（局部弹层的 backdrop-filter 不受此变量影响）
   root.style.setProperty("--glass-blur", "0px");
-  const c3 = (x) => x.toFixed(3);
   /* 雾面膜：把基色按模糊档位向“磨砂色”插值 —— 只变色调，完全不碰 alpha。
      所以拖模糊滑块只改膜的浓淡观感，桌面透出多少纹丝不动。 */
   const FROST_TONE = isLight ? [206, 210, 220] : [58, 62, 74];
@@ -1265,7 +1269,9 @@ function applyStyle() {
       root.style.setProperty("--bg-base", "rgba(0,0,0,0)");
     } else {
       if (backdrop) { backdrop.style.background = "transparent"; }
-      root.style.setProperty("--bg-base", `rgba(${veil(isLight ? "238,240,245" : "16,16,20")},${c3(baseA)})`);
+      // 图片生效时基色必须让位：桌面透出量已由 .backdrop 整组承载，
+      // 若此处再叠一层 baseA 的膜，实际不透明度会高于滑块设置值
+      root.style.setProperty("--bg-base", imgOn ? "rgba(0,0,0,0)" : `rgba(${veil(isLight ? "238,240,245" : "16,16,20")},${c3(baseA)})`);
     }
     root.style.setProperty("--panel", isLight ? `rgba(255,255,255,${c3(0.55*winOpacity+0.12)})` : `rgba(28,28,40,${c3(0.50*winOpacity+0.10)})`);
     root.classList.toggle("glass-on", enabled || blurOn);
@@ -1355,6 +1361,8 @@ function applyBgImage() {
   const pathInput = $("bgImagePath");
   if (pathInput) pathInput.value = s.bgImagePath || "";
   document.querySelectorAll("#bgModeSeg button").forEach(b => b.classList.toggle("on", b.dataset.m === (s.bgImageMode || "cover")));
+  // 图片开关/换图会改变“底”的归属：必须重算 applyStyle（.backdrop 整组淡出与基色让位都由它决定）
+  applyStyle();
 }
 
 function invertColor(hex) {

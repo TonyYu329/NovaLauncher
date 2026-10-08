@@ -14,7 +14,7 @@
 | 平台 | 仅 Windows 10 / Windows 11 x64（需 WebView2 Runtime） |
 | 权威文档 | `DOCS/07Nova Launcher M40 详细开发任务拆解（可直接交给豆包执行）.md` |
 | GitHub | https://github.com/TonyYu329/NovaLauncher（main） |
-| 版本 | **V0.1.0**（GitHub Release，2026-10-01）；tag `v0.1.0`（附注） |
+| 版本 | **V0.1.1**（GitHub Release，2026-10-08）；tag `v0.1.1`（附注） |
 | 版本号来源 | 前端 `APP_META` 常量（`nova-launcher.html` 脚本头部）——抽屉副标题与「关于」弹窗共用，**升级只改这一处** |
 | 发布人 | **Tony**（不是 GitHub 账号 TonyYu329，「关于」弹窗里填的是前者） |
 
@@ -23,6 +23,7 @@
 - 运行：双击 `Source\NovaLauncher.bat` 或 `Source\NovaLauncher.exe`（推荐，无控制台闪窗，可固定任务栏）
 - 重编译启动器：在 `Source\` 下执行 `NovaLauncherExe.cs` 头注释里的 csc 命令（源码纯 ASCII，勿加中文）
 - 任务栏单图标：**V0.1.0 起全自动**——exe 每次启动自注册开始菜单快捷方式（指向当前运行的 exe + AUMID），ps1 顶层在窗口创建前即声明 AUMID；固定项/运行图标经该注册解析。历史坑：`ExtendedProperty` 对 AUMID 只读（须 IPropertyStore P/Invoke）、AUMID 须在 lnk Save 之后写、重存固定 lnk 会剥 pin 元数据（exe 刻意不重写任务栏固定项），详见记忆库 ADR-NL013/NL014
+- 背景图片透明度（V0.1.1 修复）：`.backdrop` 是背景场景层（背景图片 `#bgImageLayer` 就在其内），其 `opacity` 必须跟随透明度滑块**整组淡出**（`imgOn ? winOpacity : 1`），且图片生效时 `--bg-base` 置透明。**CSS `opacity` 只能加在容器上、不能只加图片那一层**——单层 alpha 会与下层膜叠加成 `2a−a²`（50% 显示成 75%、80% 显示成 96%）；改图片开关后须调 `applyStyle()` 重算
 - 语法校验：`[System.Management.Automation.Language.Parser]::ParseFile()` 检查 ps1；`node --check` 检查前端 JS
 - 验证：每次改完必须启动测试 + 截图目视，仅日志/数值不算完成
 - 前端调试：DataDir 放 DEBUG.flag，写 `__SHOT__` 到 debug-js.txt 触发 CDP 截图
@@ -73,6 +74,8 @@ Source/
 - **窗口背景 / 毛玻璃**：只用 `DWMWA_SYSTEMBACKDROP_TYPE` 的 `DWMSBT_NONE`（透明框架）或 `glassEnabled` 的 Mica=2/Acrylic=3，WebView2 DefaultBackgroundColor=Transparent
   - ⚠ **DWM 材质会把窗口背景整块顶掉**：实测背后放纯红窗口（220,30,30），透过任何 `DWMSBT_*` 材质红色分量都是 **0**。一旦启用，桌面再也透不出来，**透明度滑块必然失效**；且系统模糊半径固定、无可调 API。所以「背景模糊」改用前端「雾面膜」（`veil()` 按 `blurK` 把基色向磨砂色插值，**只改色调不碰 alpha**），两个滑块才得以解耦。旧版 accent API 在 Win11 已退化为纯黑平层且无模糊，不再启用
   - 「真模糊 + 自由透明度」在本方案下不可兼得，唯一出路是自绘桌面快照（曾试过、因不实时而撤）
+- **界面风格切换机制**：所有样式挂在 `<html>` 的 `data-theme`(dark/light) × `data-bgstyle`(liquid/mica/none) 双属性 + 纯 CSS 属性选择器（`html[data-bgstyle="liquid"] ...`），**零 JS 内联**；切换主题只改 `data-theme`。液态玻璃 = 三层透明栈（宿主 DWM 透明 / `.backdrop` 彩色场景 / `.icon-card` 白膜+`backdrop-filter:blur`）；浅色主题必须写 `[data-theme="light"][data-bgstyle="liquid"]` 独立覆盖组，否则白膜不可见
+  - **默认风格当前为 Mica**（`glassEnabled:false`、`bgStyle:"mica"`）；若要默认液态玻璃需改 html 内 **4 处**：三处 state 默认值（含补 `bgStyle:"liquid"`，L2617 的 `Object.assign` 兜底缺该项）、`applyStyle` 兜底 "mica"→"liquid"、存量用户 `settings.json` 不动、设置抽屉分段控件高亮同源。**尚未实施**
 - **文件拖拽**：NovaDrop（OLE `IDropTarget`），注册在主窗口 + 全部子窗口并定时重注册（WebView2 会创建 `Chrome_RenderWidgetHostHWND` 覆盖客户区）；`AllowExternalDrop=false`；**禁用前端 HTML5 拖拽**（dragover 不 preventDefault）；后端直接 Add-AppPath 不搜索，限制 .exe/.lnk/.bat/.cmd
 - **界面选中策略**：全局 `user-select:none`，仅对**「内容」**放行——可编辑控件（`input`/`textarea`/`contenteditable`）与界面上的路径文本（`.rpath`/`.chk-why`/`#drawerSub`/`.about-meta`）。判据是**内容 vs 界面**；一刀切会让输入框拖选、右键粘贴和路径复制一起失效
 - **编码铁律**：ps1 必须 UTF-8 **带 BOM**（PS5.1 中文注释否则语法错误）；bat 必须全英文 ASCII + CRLF
