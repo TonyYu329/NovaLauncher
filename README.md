@@ -2,6 +2,8 @@
 
 极简的 Windows 应用启动页。**双击 `NovaLauncher.bat` 即用**，免安装、免运行时依赖。
 
+![Nova Launcher 主界面](docs/main.png)
+
 ## 架构（M40）
 
 ```
