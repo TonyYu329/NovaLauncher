@@ -453,6 +453,11 @@
   #bgImageLayer{ position:absolute; inset:0; z-index:0; background-size:cover; background-position:center;
     background-repeat:no-repeat; opacity:0; transition:opacity var(--anim-medium) var(--ease); }
   #bgImageLayer.on{ opacity:1; }
+  /* 图片强度罩：叠在图片之上的一层主题底色，alpha = 1 - 图片强度。
+     图片本身保持不透明，所以 .backdrop 组内**始终是满不透明层**——窗口整体不透明度
+     仍只由「背景透明度」控制（100% 依旧完全不透明），图片变淡时露出的是主题底色而非桌面。
+     加色不透明度由 applyStyle() 内联设置；无过渡，拖滑块即时跟手。 */
+  #bgImageWash{ position:absolute; inset:0; z-index:1; pointer-events:none; opacity:0; background:#101014; }
 
   /* ---------- 窗口透明 / 系统亚克力模糊时，背景模糊统一由 DWM 实时完成 ---------- */
   /* see-through：需要透出桌面（透明或开启系统模糊）时，禁用全屏背景层与图标卡片对“桌面”的 CSS
@@ -650,7 +655,7 @@
 </head>
 <body data-page-node-id="1QQnfMEknKu9NII3cumZvu">
 
-<div class="backdrop" data-page-node-id="1lIUsXK3GOUNLDaOsF8Fc4"><div class="g3" data-page-node-id="y532mMRiUyujjptOQJ5GpN"></div><div class="noise" data-page-node-id="JgBdhIV0clacJqycRPKx9s"></div><div id="bgImageLayer"></div></div>
+<div class="backdrop" data-page-node-id="1lIUsXK3GOUNLDaOsF8Fc4"><div class="g3" data-page-node-id="y532mMRiUyujjptOQJ5GpN"></div><div class="noise" data-page-node-id="JgBdhIV0clacJqycRPKx9s"></div><div id="bgImageLayer"></div><div id="bgImageWash"></div></div>
 
 <div class="window" data-page-node-id="qO004CIPfCbHQNBiEGegeq">
   <header class="titlebar" data-page-node-id="F6SPZ7y6b1Svbiwj4ktc0B">
@@ -764,6 +769,10 @@
         <button data-m="repeat">平铺</button>
         <button data-m="100% 100%">拉伸</button>
       </div>
+    </div>
+    <div class="field" id="bgStrengthField">
+      <label>图片强度 <b><span id="bgStrengthVal">100</span>%</b></label>
+      <input type="range" id="bgImageStrength" min="0" max="100" value="100">
     </div>
     <div class="row">
       <label>启用背景图片</label>
@@ -892,12 +901,12 @@ const $ = id => document.getElementById(id);
    升级版本时只改这里，别再散落到 drawerSub 的静态 HTML 里各写一遍。 */
 const APP_META = {
   name: "Nova Launcher",
-  version: "V0.1.1",
+  version: "V0.1.2",
   releaseDate: "2026-10-08",
   publisher: "Tony",
 };
 
-let state = { apps: [], settings: { iconSize: 100, cols: 10, theme: "dark", glassEnabled: false, glassIntensity: 50, bgStyle: "liquid", windowOpacity: 100, bgBlur: 0, bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover", iconFontFamily: "system", iconFontSize: 14, iconFontColor: "#ffffff", iconFontWeight: 600 } };
+let state = { apps: [], settings: { iconSize: 100, cols: 10, theme: "dark", glassEnabled: false, glassIntensity: 50, bgStyle: "liquid", windowOpacity: 100, bgBlur: 0, bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover", bgImageStrength: 100, iconFontFamily: "system", iconFontSize: 14, iconFontColor: "#ffffff", iconFontWeight: 600 } };
 
 /* ==========================================================================
    演示模式数据（直接双击打开 HTML 时使用，不执行任何启动动作）
@@ -982,7 +991,7 @@ const API = {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(LSKEY) || "null"); } catch (e) {}
     const apps  = (saved && saved.apps) || DEMO.slice(0, 6).map(a => Object.assign({}, a));
-    const sets  = (saved && saved.settings) || { iconSize:100, cols:10, theme:"dark", glassEnabled:false, glassIntensity:50, bgStyle:"liquid", windowOpacity:100, bgBlur:0, bgImageEnabled:false, bgImagePath:"", bgImageMode:"cover", iconFontFamily:"system", iconFontSize:14, iconFontColor:"#ffffff", iconFontWeight:600 };
+    const sets  = (saved && saved.settings) || { iconSize:100, cols:10, theme:"dark", glassEnabled:false, glassIntensity:50, bgStyle:"liquid", windowOpacity:100, bgBlur:0, bgImageEnabled:false, bgImagePath:"", bgImageMode:"cover", bgImageStrength:100, iconFontFamily:"system", iconFontSize:14, iconFontColor:"#ffffff", iconFontWeight:600 };
     return { apps, settings: sets, demo: true };
   },
 
@@ -1056,6 +1065,7 @@ function demoSetting(k, v) {
   if (k === "bgImageEnabled") state.settings.bgImageEnabled = (v === true || v === "true");
   if (k === "bgImagePath") state.settings.bgImagePath = v;
   if (k === "bgImageMode") state.settings.bgImageMode = v;
+  if (k === "bgImageStrength") state.settings.bgImageStrength = Math.max(0, Math.min(100, +v));
   if (k === "iconFontFamily") state.settings.iconFontFamily = v;
   if (k === "iconFontSize") state.settings.iconFontSize = Math.max(10, Math.min(24, +v));
   if (k === "iconFontColor") state.settings.iconFontColor = v;
@@ -1235,11 +1245,22 @@ function applyStyle() {
   // 做法是把整个 .backdrop（图片 + 光晕 + 噪点）当一个组按 opacity 淡出——组内先合成、
   // 再整体淡出，所以图片与光晕之间不会出现两层 alpha 叠加，桌面透出量刚好等于滑块值。
   const imgOn = !!(s.bgImageEnabled && s.bgImagePath);
+  // 图片强度：0=图片完全隐藏（只剩主题底色），100=图片完全显示。
+  // 做法是在图片之上盖一层「主题底色罩」（alpha = 1 - 强度），图片本身保持不透明，
+  // 于是 .backdrop 组内始终是满不透明层——窗口整体不透明度仍只由「背景透明度」决定，
+  // 图片变淡时露出的是主题底色而非桌面（不破坏「背景透明度 100% = 完全不透明」的约定）。
+  const imgStrength = Math.max(0, Math.min(100, s.bgImageStrength ?? 100));
+  const washAlpha = 1 - imgStrength / 100;
   const c3 = (x) => x.toFixed(3);
   const backdrop = document.querySelector(".backdrop");
   if (backdrop) {
     backdrop.style.opacity = imgOn ? c3(winOpacity) : "1";
     backdrop.style.background = "";  // 先清空交回 CSS，下面按需覆盖
+  }
+  const wash = document.getElementById("bgImageWash");
+  if (wash) {
+    wash.style.background = isLight ? "#eef0f5" : "#101014";
+    wash.style.opacity = (imgOn && washAlpha > 0.001) ? c3(washAlpha) : "0";
   }
   // 透出 DWM 时：前端绝不用 backdrop-filter 去糊桌面（模糊由 DWM 实时完成），只叠染色
   root.classList.toggle("see-through", transparent);
@@ -1329,6 +1350,13 @@ function applyStyle() {
   if (blurVal) blurVal.textContent = bgBlur;
   const blurTier = $("blurTier");
   if (blurTier) blurTier.textContent = blurTierLabel(bgBlur);
+  // 图片强度滑块同步（未启用图片时置灰，与「效果强度」一致）
+  const strengthRange = $("bgImageStrength");
+  if (strengthRange) strengthRange.value = imgStrength;
+  const strengthVal = $("bgStrengthVal");
+  if (strengthVal) strengthVal.textContent = imgStrength;
+  const strengthField = $("bgStrengthField");
+  if (strengthField) { strengthField.style.opacity = imgOn ? "1" : "0.4"; strengthField.style.pointerEvents = imgOn ? "auto" : "none"; }
 }
 
 function applyWindowOpacity() {
@@ -2308,6 +2336,16 @@ $("bgModeSeg").onclick = e => {
   API.setting("bgImageMode", b.dataset.m).catch(() => {});
 };
 
+let strengthTimer = null;
+$("bgImageStrength").oninput = e => {
+  const v = +e.target.value;
+  state.settings.bgImageStrength = v;
+  $("bgStrengthVal").textContent = v;
+  applyStyle();
+  clearTimeout(strengthTimer);
+  strengthTimer = setTimeout(() => API.setting("bgImageStrength", v).catch(() => {}), 200);
+};
+
 $("iconFontFamily").onchange = e => {
   state.settings.iconFontFamily = e.target.value;
   applyIconFont();
@@ -2366,7 +2404,7 @@ const DEFAULT_SETTINGS = {
   iconSize: 100, cols: 10, theme: "dark",
   glassEnabled: false, glassIntensity: 50, bgStyle: "liquid",
   windowOpacity: 100, bgBlur: 0,
-  bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover",
+  bgImageEnabled: false, bgImagePath: "", bgImageMode: "cover", bgImageStrength: 100,
   iconFontFamily: "system", iconFontSize: 14, iconFontColor: "#ffffff", iconFontWeight: 600
 };
 $("resetSettings").onclick = async () => {

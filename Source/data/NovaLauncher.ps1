@@ -792,7 +792,7 @@ function Save-Apps($apps) {
 
 function Get-Settings {
     $s = Read-Json $SetFile $null
-    $r = [pscustomobject]@{ iconSize = 64; cols = 6; theme = 'dark'; win = $null; glassEnabled = $true; glassIntensity = 50; bgStyle = 'mica'; windowOpacity = 100; bgBlur = 0; bgImageEnabled = $false; bgImagePath = ''; bgImageMode = 'cover'; iconFontFamily = 'system'; iconFontSize = 12; iconFontColor = '#ececf1'; iconFontWeight = 600 }
+    $r = [pscustomobject]@{ iconSize = 64; cols = 6; theme = 'dark'; win = $null; glassEnabled = $true; glassIntensity = 50; bgStyle = 'mica'; windowOpacity = 100; bgBlur = 0; bgImageEnabled = $false; bgImagePath = ''; bgImageMode = 'cover'; bgImageStrength = 100; iconFontFamily = 'system'; iconFontSize = 12; iconFontColor = '#ececf1'; iconFontWeight = 600 }
     if ($s) {
         if ($s.PSObject.Properties['iconSize'])      { $r.iconSize      = [int]$s.iconSize }
         if ($s.PSObject.Properties['cols'])          { $r.cols          = [int]$s.cols }
@@ -806,6 +806,7 @@ function Get-Settings {
         if ($s.PSObject.Properties['bgImageEnabled']){ $r.bgImageEnabled= [bool]$s.bgImageEnabled }
         if ($s.PSObject.Properties['bgImagePath'])   { $r.bgImagePath   = [string]$s.bgImagePath }
         if ($s.PSObject.Properties['bgImageMode'])   { $r.bgImageMode   = [string]$s.bgImageMode }
+        if ($s.PSObject.Properties['bgImageStrength']){ $r.bgImageStrength= [int]$s.bgImageStrength }
         if ($s.PSObject.Properties['iconFontFamily']){ $r.iconFontFamily= [string]$s.iconFontFamily }
         if ($s.PSObject.Properties['iconFontSize'])  { $r.iconFontSize  = [int]$s.iconFontSize }
         if ($s.PSObject.Properties['iconFontColor']) { $r.iconFontColor = [string]$s.iconFontColor }
@@ -1852,6 +1853,7 @@ function Invoke-NovaApi([string]$op, $data) {
                 'bgImageEnabled' { $s.bgImageEnabled = ($v -eq 'true' -or $v -eq 'True') }
                 'bgImagePath' { $s.bgImagePath = $v }
                 'bgImageMode' { if ($v -in @('cover','contain','100% auto','repeat','100% 100%')) { $s.bgImageMode = $v } }
+                'bgImageStrength' { $n = 100; if ([int]::TryParse($v, [ref]$n)) { $s.bgImageStrength = [Math]::Max(0, [Math]::Min(100, $n)) } }
                 'iconFontFamily' { $s.iconFontFamily = $v }
                 'iconFontSize' { $n = 12; if ([int]::TryParse($v, [ref]$n)) { $s.iconFontSize = [Math]::Max(10, [Math]::Min(24, $n)) } }
                 'iconFontColor' { $s.iconFontColor = $v }

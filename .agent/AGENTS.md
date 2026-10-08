@@ -14,7 +14,7 @@
 | 平台 | 仅 Windows 10 / Windows 11 x64（需 WebView2 Runtime） |
 | 权威文档 | `DOCS/07Nova Launcher M40 详细开发任务拆解（可直接交给豆包执行）.md` |
 | GitHub | https://github.com/TonyYu329/NovaLauncher（main） |
-| 版本 | **V0.1.1**（GitHub Release，2026-10-08）；tag `v0.1.1`（附注） |
+| 版本 | **V0.1.2**（GitHub Release，2026-10-08）；tag `v0.1.2`（附注） |
 | 版本号来源 | 前端 `APP_META` 常量（`nova-launcher.html` 脚本头部）——抽屉副标题与「关于」弹窗共用，**升级只改这一处** |
 | 发布人 | **Tony**（不是 GitHub 账号 TonyYu329，「关于」弹窗里填的是前者） |
 
@@ -24,6 +24,7 @@
 - 重编译启动器：在 `Source\` 下执行 `NovaLauncherExe.cs` 头注释里的 csc 命令（源码纯 ASCII，勿加中文）
 - 任务栏单图标：**V0.1.0 起全自动**——exe 每次启动自注册开始菜单快捷方式（指向当前运行的 exe + AUMID），ps1 顶层在窗口创建前即声明 AUMID；固定项/运行图标经该注册解析。历史坑：`ExtendedProperty` 对 AUMID 只读（须 IPropertyStore P/Invoke）、AUMID 须在 lnk Save 之后写、重存固定 lnk 会剥 pin 元数据（exe 刻意不重写任务栏固定项），详见记忆库 ADR-NL013/NL014
 - 背景图片透明度（V0.1.1 修复）：`.backdrop` 是背景场景层（背景图片 `#bgImageLayer` 就在其内），其 `opacity` 必须跟随透明度滑块**整组淡出**（`imgOn ? winOpacity : 1`），且图片生效时 `--bg-base` 置透明。**CSS `opacity` 只能加在容器上、不能只加图片那一层**——单层 alpha 会与下层膜叠加成 `2a−a²`（50% 显示成 75%、80% 显示成 96%）；改图片开关后须调 `applyStyle()` 重算
+- 图片强度（V0.1.2 新增）：设置页「图片强度」滑块（`bgImageStrength`，0-100）控制图片浓淡，实现为图片**之上**的主题底色罩 `#bgImageWash`（`alpha = 1 − 强度`），图片本身恒不透明——变淡露出主题底色而非桌面，不破坏透明度语义。**不要给 `#bgImageLayer` 加 alpha**（图片生效时 `--bg-base` 已透明，图片变淡会直接透出桌面）；宿主 ps1 三处白名单（Get-Settings 默认值/属性拷贝/setting switch）须与前端同步
 - 语法校验：`[System.Management.Automation.Language.Parser]::ParseFile()` 检查 ps1；`node --check` 检查前端 JS
 - 验证：每次改完必须启动测试 + 截图目视，仅日志/数值不算完成
 - 前端调试：DataDir 放 DEBUG.flag，写 `__SHOT__` 到 debug-js.txt 触发 CDP 截图
@@ -66,7 +67,7 @@ Source/
 
 - **启动器（V0.1.0）**：NovaLauncher.exe 用系统 csc 编译（零依赖）；定位零硬编码（`data\NovaLauncher.ps1` 相对 exe，`powershell.exe` 走 PATH 与 bat 的 where 一致，找不到弹窗）；与 bat 参数完全一致（-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden）；**启动时自注册应用身份**——每次拉起 powershell 前创建/校准开始菜单快捷方式 `%APPDATA%\...\Start Menu\Programs\NovaLauncher.lnk`（target=当前 exe + IconLocation + AUMID=NovaLauncher.App），修复"固定后启动不同实例"，全新电脑零配置
 - **任务栏 AUMID（V0.1.0 全自动）**：单图标 = 双向声明——ps1 **顶层**（任何窗口句柄创建之前）`SetCurrentProcessExplicitAppUserModelID("NovaLauncher.App")`（放晚了按钮绑宿主身份）+ exe 自注册的开始菜单快捷方式携带 AUMID。Win11 运行图标从系统级 AUMID 注册解析，无注册回退宿主 powershell.exe 图标。手动修复坑（历史代码已沉淀进 exe）：`ExtendedProperty` 对 AUMID **只读**（须 P/Invoke `SHGetPropertyStoreFromParsingName` GPS_READWRITE + IPropertyStore，PKEY {9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3} pid 5）；AUMID 须在 lnk `Save` **之后**写（Save 清扩展属性）；GPS 读回 empty 是缓存假象，以 lnk 二进制含 UTF-16 字符串为准；**不重写任务栏固定项**（重存剥 pin 元数据）
-- **单实例保护（V0.0.9 修正）**：ps1 头部命名 Mutex `Local\NovaLauncher.SingleInstance`——重复启动（桌面/任务栏任一入口）时按标题 'Nova Launcher'（EnumWindows+GetWindowTextW；**FindWindowW 对该无边框窗口失效**）找到既有窗口 → SW_RESTORE+SetForegroundWindow → exit 0。`$form.Text='Nova Launcher'` 是定位依据，勿改。改 ps1 后必须：补 BOM（Edit 工具会丢）→ 同步到实际部署副本（当前 `E:\Person\backup\lantian\sw\NovaLauncher-V0.0.9\data\`）
+- **单实例保护（V0.0.9 修正）**：ps1 头部命名 Mutex `Local\NovaLauncher.SingleInstance`——重复启动（桌面/任务栏任一入口）时按标题 'Nova Launcher'（EnumWindows+GetWindowTextW；**FindWindowW 对该无边框窗口失效**）找到既有窗口 → SW_RESTORE+SetForegroundWindow → exit 0。`$form.Text='Nova Launcher'` 是定位依据，勿改。改 ps1 后必须：补 BOM（Edit 工具会丢）→ 同步到实际部署副本（当前 `E:\Person\backup\lantian\sw\NovaLauncher-V0.1.0\data\`；目录名仍 V0.1.0、内容随版本同步，改名需重定向桌面/任务栏/开始菜单三处 lnk + 重写 AUMID）
 - **窗口**：WinForms FormBorderStyle=None，OnHandleCreated 运行时 SetWindowLongPtr 加 WS_MINIMIZEBOX（任务栏点击最小化/恢复）
 - **DPI**：Per-Monitor V2（SetProcessDpiAwarenessContext PMv2）+ GetDpiForWindow（**禁止 GetDpiForSystem**，多显示器不准）+ WM_DPICHANGED 处理
 - **WebView2 初始化**：Form.Shown + Timer 轮询异步初始化（**禁止 .GetAwaiter().GetResult()/.Result 阻塞 UI 线程**，会死锁）
