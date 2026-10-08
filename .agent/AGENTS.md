@@ -35,6 +35,7 @@ V0.0.6 曾从过期副本打包，导致**已发布**的包缺功能。此后固
 
 1. **改版本** → 只改 `Source/data/nova-launcher.html` 的 `APP_META`；更新 `README.md` 标题+版本历史；追加 `Source/修改记录.md`
 2. **打包** → 必须从 `Source/` 目录，用 .NET `ZipArchive` + `Encoding.UTF8`（**不能用 `Compress-Archive`**，PS5.1 下中文条目名会乱码）
+   - **entryNameEncoding 必须传静态 `[System.Text.Encoding]::UTF8`**——只有它触发中央目录 EFS 位（0x0800）；`New-Object System.Text.UTF8Encoding($false)` 等自定义实例**不触发**，中文系统上 .NET 读回/资源管理器按 GBK 解码乱码（V0.1.2 实测）。EFS 位只在中央目录，本地头恒 0；排查用「搜名字字节序列 + 打印前 46 字节判 `PK\x01\x02`」而非顺序扫签名（会命中压缩数据假签名）
    ```
    9 个条目（V0.0.9 修正，2026-09-30）：data/{nova-launcher.html, nova-logo.ico, NovaLauncher.ps1, lib/*.dll},
              NovaLauncher.bat, NovaLauncher.exe, README.md, 修改记录.md
